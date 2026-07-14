@@ -1,7 +1,7 @@
 # KServe InferenceService: DistilBERT toxicity classifier on Triton + ONNX.
 #
 # Topology: PVC (model.onnx) → Triton (ONNX backend) → KServe V2 protocol.
-# RawDeployment mode + KEDA annotations (M3) for scale-to-zero.
+# RawDeployment mode + KEDA annotations (M3) for autoscaling 1 → N → 1.
 #
 # Mirrors serving/gpu/inferenceservice-triton.yaml in shape. Differences:
 #   - Backend: onnx (vs tensorrt)
@@ -33,12 +33,15 @@ metadata:
   namespace: default
   annotations:
     serving.kserve.io/deploymentMode: RawDeployment
-    # KEDA autoscaling deferred to M3 — uncomment when ready:
-    # serving.kserve.io/autoscalerClass: keda
+    serving.kserve.io/autoscalerClass: keda
 spec:
   predictor:
+    # ADR 0007: true scale-to-zero is out of scope for RawDeployment M3.
+    # Serverless/Knative is the right place for that capability. We keep one
+    # replica as the floor so KEDA's pod-level Triton metric always exists and
+    # can scale 1 -> N -> 1 under load.
     minReplicas: 1
-    maxReplicas: 1
+    maxReplicas: 3
     containers:
       - name: kserve-container
         image: nvcr.io/nvidia/tritonserver:23.05-py3
@@ -87,6 +90,31 @@ spec:
       - name: model-repo
         persistentVolumeClaim:
           claimName: triton-cpu-model-repo
+    autoScaling:
+      behavior:
+        # Shorten the scale-down stabilization window so the M3 demo can observe
+        # scale-back-to-minimum in ~1 minute instead of KEDA's default 5 minutes.
+        scaleDown:
+          stabilizationWindowSeconds: 60
+      metrics:
+        # Trigger — Triton inference queue duration per pod (microseconds/s).
+        # When average queue pressure per pod exceeds 50ms/s, KEDA scales up.
+        # When traffic stops and the queue drains, KEDA scales back down to
+        # minReplicas after the cooldown.
+        #
+        # NOTE (ADR 0007): this is a pod-level metric. We keep minReplicas=1
+        # so the metric is always available; true scale-to-zero would require
+        # an ingress-level trigger or Serverless mode.
+        - type: External
+          external:
+            metric:
+              backend: prometheus
+              serverAddress: http://kube-prometheus-stack-prometheus.observability.svc:9090
+              query: >
+                avg(rate(nv_inference_queue_duration_us{model="distilbert-toxicity"}[30s]))
+            target:
+              type: Value
+              value: "50000"
 ---
 # VirtualService — same pattern as the previous MLServer ISVC.
 # See serving/cpu/README.md "Routing" section for details.

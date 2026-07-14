@@ -86,22 +86,27 @@ after M0 verification surfaced kind-specific issues).
 ├── docs/adr/
 │   ├── 0001-use-kind-for-cpu-and-k3s-for-gpu.md   superseded by 0002
 │   └── 0002-use-k3s-for-both-clusters.md          current runtime decision
-└── infra/
-    ├── k3s-install.sh                              shared installer (WITH_GPU flag)
-    ├── install-platform-stack.sh                   shared KServe/KEDA/Argo/Istio/Prometheus/MLflow
-    ├── manifests/
-    │   └── mlflow.yaml                             MLflow deployment (SQLite + MinIO S3)
-    ├── scripts/
-    │   └── harden-against-vpn-dns.sh               one-time host fix for NordVPN + k3s
-    ├── cpu-cluster/
-    │   └── bootstrap.sh                            sources shared k3s (no GPU) + platform stack
-    └── gpu-cluster/
-        ├── bootstrap.sh                            sources shared k3s (GPU) + GPU Operator + platform stack
-        └── gpu-operator-values.yaml                device plugin + DCGM, host driver
+├── infra/
+│   ├── k3s-install.sh                              shared installer (WITH_GPU flag)
+│   ├── install-platform-stack.sh                   shared KServe/KEDA/Argo/Istio/Prometheus/MLflow
+│   ├── manifests/
+│   │   └── mlflow.yaml                             MLflow deployment (SQLite + MinIO S3)
+│   ├── scripts/
+│   │   └── harden-against-vpn-dns.sh               one-time host fix for NordVPN + k3s
+│   ├── cpu-cluster/
+│   │   └── bootstrap.sh                            sources shared k3s (no GPU) + platform stack
+│   └── gpu-cluster/
+│       ├── bootstrap.sh                            sources shared k3s (GPU) + GPU Operator + platform stack
+│       └── gpu-operator-values.yaml                device plugin + DCGM, host driver
+├── serving/
+│   ├── cpu/                                        Triton + ONNX predictor
+│   └── gpu/                                        Triton + TensorRT predictor
+├── traffic/                                        Locust load tests (M3)
+└── monitoring/                                     Grafana dashboards
 ```
 
-Not yet scaffolded: `traffic/` (Locust + Argo Rollouts),
-`monitoring/` (Grafana dashboards).
+`traffic/` (Locust) and `monitoring/` (Grafana dashboards) are in place for M3.
+Argo Rollouts remain M4.
 
 ## Milestones
 
@@ -110,7 +115,7 @@ Not yet scaffolded: `traffic/` (Locust + Argo Rollouts),
 | M0 | Cluster bootstrap + platform stack | **Verified on k3s** (CPU cluster); GPU cluster pending hardware. *Caveat:* initial M0 verification covered pod readiness only — a latent MLflow artifact-upload bug (missing `boto3` in the upstream image) was caught and fixed during M1 (see [ADR 0006](docs/adr/0006-use-distilbert-over-bert.md) refs + `infra/manifests/mlflow.yaml` comment). |
 | M1 | Train DistilBERT on Jigsaw, log to MLflow | **Verified on CPU** (run `4927d59563184da6a5861765de043394`, auroc_macro 0.9795). See [ADR 0006](docs/adr/0006-use-distilbert-over-bert.md). |
 | M2 | Serve v1 via KServe | **Verified on CPU** (Triton + ONNX backend; ISVC `toxicity-cpu` reaches Ready, V2 inference through Istio Gateway works end-to-end). GPU scaffolded (Triton + TRT); GPU cluster pending hardware. See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md). |
-| M3 | Traffic sim + observe scale-to-zero | Not started |
+| M3 | Traffic sim + observe autoscaling | **Verified on CPU** — Locust `traffic/` drove load through the Istio gateway; KEDA scaled `toxicity-cpu` from 1 → 3 replicas on Triton queue-duration and scaled back to 1 after traffic stopped. True scale-to-zero intentionally dropped; see [ADR 0007](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md). Grafana M3 dashboard deployed. GPU side pending hardware. |
 | M4 | Argo Rollouts canary with Prometheus analysis | Not started |
 | M5 | v2 retrain + automated promotion | Not started |
 
@@ -273,3 +278,8 @@ Planned ADRs (filed when the corresponding code lands):
   `enableGatewayApi: true`, or wiring Knative back in.
 - **PromQL labels need verification** against the actual DCGM exporter version.
   See comments in `serving/gpu/inferenceservice-triton.yaml`.
+- **CPU predictor keeps one replica at idle.** Per [ADR 0007](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md),
+  true scale-to-zero is out of scope for RawDeployment M3. `minReplicas: 1`
+  ensures the pod-level Triton metric used by KEDA is always available. If
+  scale-to-zero becomes a hard requirement, the right path is Serverless
+  (Knative) mode, not a RawDeployment workaround.

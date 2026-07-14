@@ -1,0 +1,56 @@
+# Headless Service exposing the Istio ingress gateway Envoy metrics port (15090).
+#
+# The Helm-managed istio-ingress Service only exposes ports 80/443/15021.
+# We add this companion Service on port 15090 so the ServiceMonitor below can
+# scrape Envoy's /stats/prometheus endpoint.
+apiVersion: v1
+kind: Service
+metadata:
+  name: istio-ingress-metrics
+  namespace: istio-ingress
+  labels:
+    istio: ingress
+    app: istio-ingress
+    metrics-target: istio-ingress
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: istio-ingress
+    istio: ingress
+  ports:
+    - name: http-envoy-prom
+      port: 15090
+      targetPort: 15090
+      protocol: TCP
+---
+# ServiceMonitor for the Istio ingress gateway Envoy metrics.
+#
+# These metrics are required for KEDA to scale the Triton predictor from zero
+# in RawDeployment mode: the Triton queue-duration metric disappears when no
+# predictor pods exist, but the ingress gateway still emits
+# istio_requests_total, so we can use request rate as the scale-from-zero
+# trigger.
+#
+# The kube-prometheus-stack Prometheus has an empty serviceMonitorSelector,
+# so it discovers this monitor automatically.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istio-ingress-metrics
+  namespace: observability
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - istio-ingress
+  selector:
+    matchLabels:
+      metrics-target: istio-ingress
+  endpoints:
+    - port: http-envoy-prom
+      path: /stats/prometheus
+      scheme: http
+      interval: 15s
+      scrapeTimeout: 10s
