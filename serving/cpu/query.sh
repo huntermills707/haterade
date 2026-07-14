@@ -1,45 +1,26 @@
 #!/usr/bin/env bash
-# Smoke-test the deployed MLServer toxicity model with a single tokenized input.
+# Smoke-test the deployed Triton toxicity model with a single tokenized input.
 #
-# Tokenization happens client-side — same pre-tokenized-input contract as
-# serving/gpu/query.sh. The KServe transformer (raw text -> tokens) is a
-# separate milestone; without it, raw text cannot be sent to this predictor.
+# Tokenization happens client-side for now. The KServe transformer (raw text in
+# → tokens → predictor) is a separate milestone; without it, raw text cannot
+# be sent to this predictor directly.
 #
-# Routing: hits the Istio Gateway at its ServiceLB ExternalIP, with a
-# `Host:` header matching the ISVC's URL. That avoids needing /etc/hosts
-# entries for `*.example.com`. If you'd rather use the URL directly:
-#   echo "<extIP> <host>" | sudo tee -a /etc/hosts
-# then `URL=$HOST curl http://$URL/...` will work too.
+# Same script as serving/gpu/query.sh except for the default ISVC name.
 set -euo pipefail
 
 ISVC_NAME="${ISVC_NAME:-toxicity-cpu}"
 NAMESPACE="${NAMESPACE:-default}"
 SEQ_LEN="${SEQ_LEN:-128}"
-# Export so the python subprocess in the decode step can read it.
-export SAMPLE_TEXT="${SAMPLE_TEXT:-you are a wonderful person}"
+SAMPLE_TEXT="${SAMPLE_TEXT:-you are a wonderful person}"
+MODEL_NAME="${MODEL_NAME:-distilbert-toxicity}"
 
-# Prefer the repo-local training venv (it already has transformers pinned
-# to match the trained model). Fall back to whatever `python3` is on PATH.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-if [ -x "$REPO_ROOT/training/.venv/bin/python" ]; then
-  PYTHON="$REPO_ROOT/training/.venv/bin/python"
-else
-  PYTHON="python3"
-fi
-
-for tool in kubectl curl jq; do
+for tool in kubectl curl python3 jq; do
   command -v "$tool" >/dev/null 2>&1 || { echo "missing: $tool"; exit 1; }
 done
-"$PYTHON" -c "import transformers" 2>/dev/null || {
-  echo "transformers not importable by $PYTHON; install with:"
-  echo "  $PYTHON -m pip install transformers"
-  echo "or use the repo training venv: training/.venv/bin/pip install transformers"
-  exit 1
-}
+python3 -c "import transformers" 2>/dev/null || { echo "pip install transformers"; exit 1; }
 
 echo "==> Tokenizing: $SAMPLE_TEXT"
-PAYLOAD=$("$PYTHON" - "$SAMPLE_TEXT" "$SEQ_LEN" <<'PY'
+PAYLOAD=$(python3 - "$SAMPLE_TEXT" "$SEQ_LEN" <<'PY'
 import json, sys
 from transformers import AutoTokenizer
 text, seq_len = sys.argv[1], int(sys.argv[2])
@@ -54,48 +35,35 @@ print(json.dumps({
 PY
 )
 
-echo "==> Resolving ISVC URL + Gateway ExternalIP"
-# URL form: http://<name>-<namespace>.<ingressDomain> — we only want the host.
-HOST=$(kubectl get inferenceservice "$ISVC_NAME" -n "$NAMESPACE" \
-         -o jsonpath='{.status.url}' 2>/dev/null | sed -E 's|^https?://||')
-[ -n "$HOST" ] || { echo "ISVC $ISVC_NAME has no URL yet; is it Ready?"; exit 1; }
+echo "==> Resolving Gateway ExternalIP"
+GATEWAY_IP=$(kubectl -n istio-ingress get svc istio-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+[ -n "$GATEWAY_IP" ] || { echo "no ExternalIP on istio-ingress gateway"; exit 1; }
 
-EXT_IP=$(kubectl -n istio-ingress get svc istio-ingress \
-           -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-[ -n "$EXT_IP" ] || {
-  echo "no ServiceLB ExternalIP on istio-ingress; port-forward instead:"
-  echo "  kubectl -n istio-ingress port-forward svc/istio-ingress 8080:80"
-  echo "  curl -H \"Host: $HOST\" http://127.0.0.1:8080/..."
-  exit 1
-}
+HOST="${ISVC_NAME}-${NAMESPACE}.example.com"
 
-echo "==> POST /v2/models/$ISVC_NAME/infer"
-echo "    via http://$EXT_IP/  (Host: $HOST)"
-RESPONSE=$(curl -sS -X POST "http://$EXT_IP/v2/models/$ISVC_NAME/infer" \
+echo "==> POST /v2/models/${MODEL_NAME}/infer"
+echo "    via http://${GATEWAY_IP}/  (Host: ${HOST})"
+RAW=$(curl -sS -X POST "http://${GATEWAY_IP}/v2/models/${MODEL_NAME}/infer" \
   -H "Content-Type: application/json" \
-  -H "Host: $HOST" \
+  -H "Host: ${HOST}" \
   -d "$PAYLOAD")
 
 echo "==> Raw V2 response:"
-echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+echo "$RAW" | jq .
 
 echo ""
 echo "==> Decoded sigmoid scores per label:"
-echo "$RESPONSE" | "$PYTHON" -c "
-import json, sys, math, os
-r = json.load(sys.stdin)
-# mlserver-mlflow returns one V2 output per DataFrame column. Each has
-# shape [1,1] and a single FP32 value (the logit for that label).
-logits_by_name = {o['name']: o['data'][0] for o in r['outputs']}
-labels = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
-text = os.environ.get('SAMPLE_TEXT', '?')
-print(f'  input text: {text!r}')
-for name in labels:
-    raw = logits_by_name.get(name)
-    if raw is None:
-        print(f'  {name:15s} MISSING from response')
-        continue
-    p = 1.0 / (1.0 + math.exp(-raw))
-    bar = '#' * int(p * 40)
-    print(f'  {name:15s} {p:6.3f}  {bar}')
-"
+python3 - "$SAMPLE_TEXT" "$RAW" <<'PY'
+import json, sys, math
+
+text = sys.argv[1]
+resp = json.loads(sys.argv[2])
+logits = resp["outputs"][0]["data"]
+
+labels = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]
+print(f"  input text: '{text}'")
+for label, logit in zip(labels, logits):
+    prob = 1.0 / (1.0 + math.exp(-logit))
+    bar = "#" * int(prob * 40)
+    print(f"  {label:<16s} {prob:.3f}  {bar}")
+PY

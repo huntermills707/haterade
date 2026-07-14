@@ -1,0 +1,45 @@
+name: "distilbert-toxicity"
+backend: "onnxruntime"
+# Implicit batch: Triton inserts the batch dimension (up to max_batch_size) in
+# front of the dims declared below. The ONNX export has a dynamic batch axis
+# (dim 0 = 0, meaning dynamic) so Triton can batch 1..32 requests.
+max_batch_size: 32
+
+input [
+  {
+    name: "input_ids"
+    data_type: TYPE_INT64
+    dims: [ 128 ]
+  },
+  {
+    name: "attention_mask"
+    data_type: TYPE_INT64
+    dims: [ 128 ]
+  }
+]
+
+output [
+  {
+    name: "logits"
+    data_type: TYPE_FP32
+    dims: [ 6 ]
+  }
+]
+
+# Same dynamic batching config as the GPU path. Coalesces individual
+# requests into batches for throughput. The queue delay cap bounds
+# latency when traffic is sparse. nv_inference_queue_duration_us (this
+# metric) is what KEDA scales on — see inferenceservice-triton.yaml.
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16, 32 ]
+  max_queue_delay_microseconds: 50000
+  preserve_ordering: true
+}
+
+instance_group [
+  {
+    name: "triton-onnx-cpu"
+    kind: KIND_CPU
+    count: 1
+  }
+]

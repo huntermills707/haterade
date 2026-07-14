@@ -15,14 +15,14 @@ right signals, and a CPU-vs-GPU performance comparison.
 ```mermaid
 flowchart LR
     Notebook["Notebook<br/>Jigsaw DistilBERT"] --> Registry[("MLflow Registry<br/>+ MinIO artifacts")]
-    Registry -. storageUri .-> CPU
-    Registry -. storageUri .-> GPU
+    Registry -. ONNX export .-> CPU
+    Registry -. ONNX → TRT .-> GPU
 
     Client["Locust<br/>spiky traffic"] --> Mesh["Istio ingress<br/>+ traffic split"]
 
     subgraph CPU["CPU cluster — k3s (laptop)"]
         direction TB
-        MLServe["KServe ISVC<br/>MLServer runtime<br/>V2 protocol"]
+        TritonCPU["KServe ISVC<br/>Triton + ONNX<br/>V2 protocol"]
     end
 
     subgraph GPU["GPU cluster — k3s (2× RTX 2060 Super)"]
@@ -34,7 +34,7 @@ flowchart LR
     Mesh --> CPU
     Mesh --> GPU
 
-    MLServe -. metrics .-> Prom[("Prometheus<br/>+ Grafana")]
+    TritonCPU -. metrics .-> Prom[("Prometheus<br/>+ Grafana")]
     Triton -. metrics .-> Prom
     DCGM  -. GPU metrics .-> Prom
 
@@ -44,19 +44,19 @@ flowchart LR
 ```
 
 Both clusters run the same platform stack (Istio, KServe, KEDA, Argo Rollouts,
-Prometheus, MLflow) via a single shared install script. Only the runtime
-(MLServer vs Triton+TensorRT), the node selector, and the autoscaler metric
-source differ.
+Prometheus, MLflow) via a single shared install script. Only the Triton
+backend (ONNX on CPU vs TensorRT on GPU), the node selector, and the DCGM
+autoscaler trigger differ. See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md).
 
 ## Two acts
 
 | | Act 1 — CPU (laptop) | Act 2 — GPU (workstation) |
 |---|---|---|
 | Cluster | `mlops-cpu` (k3s on laptop) | `mlops-gpu` (k3s on bare metal) |
-| Runtime | MLServer via `mlflow://` storageUri | NVIDIA Triton with TensorRT plan |
-| Handoff story | MLflow artifact → live prediction | ONNX → `trtexec` → TRT plan → Triton |
-| Autoscaler signal | Request concurrency | Triton queue depth + DCGM GPU util |
-| Headline demo | MLflow→prod handoff, canary | GPU cost optimization, perf engineering |
+| Runtime | Triton + ONNX backend (`model.onnx`) | Triton + TensorRT backend (`model.plan`) |
+| Handoff story | MLflow → ONNX export → PVC → Triton | MLflow → ONNX → `trtexec` → TRT plan → Triton |
+| Autoscaler signal | Triton queue depth | Triton queue depth + DCGM GPU util |
+| Headline demo | Scale-to-zero, canary | GPU cost optimization, perf engineering |
 
 See [ADR 0002](docs/adr/0002-use-k3s-for-both-clusters.md) for the unified
 runtime rationale (supersedes [ADR 0001](docs/adr/0001-use-kind-for-cpu-and-k3s-for-gpu.md)
@@ -68,8 +68,9 @@ after M0 verification surfaced kind-specific issues).
 |---|---|---|
 | Orchestration | k3s (both clusters) | Same runtime in dev and prod-like envs |
 | Model serving | KServe (RawDeployment mode) | De-facto standard CRD; portable |
-| CPU runtime | MLServer | Native MLflow `storageUri` handoff |
-| GPU runtime | NVIDIA Triton + TensorRT | First-class TRT backend in KServe |
+| Inference runtime | NVIDIA Triton (both clusters) | One runtime, one config format; see ADR 0005 |
+| CPU backend | ONNX Runtime (via Triton) | Runtime-agnostic; no version mismatch |
+| GPU backend | TensorRT (via Triton) | First-class TRT backend in KServe |
 | Experiment tracking | MLflow + MinIO | Artifact + param/metric registry |
 | Autoscaling | KEDA | RawDeployment-only; scales on Prometheus |
 | Progressive delivery | Argo Rollouts | Canary with Prometheus `AnalysisTemplate` |
@@ -108,7 +109,7 @@ Not yet scaffolded: `traffic/` (Locust + Argo Rollouts),
 |---|---|---|
 | M0 | Cluster bootstrap + platform stack | **Verified on k3s** (CPU cluster); GPU cluster pending hardware. *Caveat:* initial M0 verification covered pod readiness only — a latent MLflow artifact-upload bug (missing `boto3` in the upstream image) was caught and fixed during M1 (see [ADR 0006](docs/adr/0006-use-distilbert-over-bert.md) refs + `infra/manifests/mlflow.yaml` comment). |
 | M1 | Train DistilBERT on Jigsaw, log to MLflow | **Verified on CPU** (run `4927d59563184da6a5861765de043394`, auroc_macro 0.9795). See [ADR 0006](docs/adr/0006-use-distilbert-over-bert.md). |
-| M2 | Serve v1 via KServe | **Verified on CPU** (MLServer + MLflow handoff; ISVC `toxicity-cpu` reaches Ready, V2 inference through Istio Gateway works end-to-end). GPU scaffolded (Triton + TRT); GPU cluster pending hardware. |
+| M2 | Serve v1 via KServe | **Verified on CPU** (Triton + ONNX backend; ISVC `toxicity-cpu` reaches Ready, V2 inference through Istio Gateway works end-to-end). GPU scaffolded (Triton + TRT); GPU cluster pending hardware. See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md). |
 | M3 | Traffic sim + observe scale-to-zero | Not started |
 | M4 | Argo Rollouts canary with Prometheus analysis | Not started |
 | M5 | v2 retrain + automated promotion | Not started |
@@ -227,13 +228,13 @@ keeping them is to document engineering tradeoffs, not to ratify outputs:
 
 - [0001 — kind for CPU, k3s for GPU](docs/adr/0001-use-kind-for-cpu-and-k3s-for-gpu.md) — **superseded**
 - [0002 — k3s for both clusters](docs/adr/0002-use-k3s-for-both-clusters.md) — current
+- [0003 — RawDeployment + KEDA over Serverless](docs/adr/0003-rawdeployment-and-keda-over-serverless.md) — filed (M3)
+- [0004 — MLServer for the MLflow handoff on CPU](docs/adr/0004-use-mlserver-for-mlflow-handoff-on-cpu.md) — **superseded by 0005**
+- [0005 — Triton on both CPU and GPU clusters](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md) — filed (M2, supersedes 0004)
 - [0006 — DistilBERT over full BERT](docs/adr/0006-use-distilbert-over-bert.md) — filed (M1)
 
 Planned ADRs (filed when the corresponding code lands):
 
-- 0003 — RawDeployment + KEDA over Serverless (Knative/Argo traffic-split conflict)
-- 0004 — MLServer for the MLflow handoff on CPU
-- 0005 — Triton TensorRT backend over ONNX-RT TensorRT EP on GPU
 - 0007 — Per-architecture TRT engine matrix in CI
 
 ## Known limitations
@@ -266,7 +267,7 @@ Planned ADRs (filed when the corresponding code lands):
   which serves Gateway CRD resources only. Symptom: `Ready=True`,
   `model=Loaded`, but every request through the Gateway returns 404.
   Workaround: each ISVC manifest ships a companion `VirtualService`
-  in the same YAML (see `serving/cpu/inferenceservice-mlserver.yaml`
+  in the same YAML (see `serving/cpu/inferenceservice-triton.yaml`
   for the pattern). Long-term fixes worth considering: enabling
   Istio's Kubernetes Ingress support, flipping KServe to
   `enableGatewayApi: true`, or wiring Knative back in.

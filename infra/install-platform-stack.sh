@@ -67,7 +67,7 @@ kubectl wait --for=condition=Available deployment/kserve-controller-manager -n k
 
 # Force RawDeployment as the default. KServe ships with Standard/Serverless
 # as the default; KEDA + Argo Rollouts traffic splitting conflict with Knative
-# revision routing (planned ADR 0003 — RawDeployment + KEDA over Serverless).
+# revision routing (ADR 0003 — RawDeployment + KEDA over Serverless).
 # Verified live 2026-07-13: the previous bootstrap set "Standard" — a bug
 # contradicting this comment — which silently left Knative required (not
 # installed) and blocked every InferenceService at reconcile time.

@@ -1,0 +1,24 @@
+# ServiceMonitor so kube-prometheus-stack scrapes Triton's metrics endpoint.
+# Without this, the KEDA PromQL queries against nv_inference_queue_duration_us
+# in inferenceservice-triton.yaml return empty results and KEDA never scales.
+#
+# Identical to serving/gpu/triton-servicemonitor.yaml except for the ISVC name.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: triton-cpu-metrics
+  namespace: default
+  labels:
+    release: kube-prometheus-stack   # matched by kube-prometheus-stack discovery
+spec:
+  selector:
+    matchLabels:
+      serving.kserve.io/inferenceservice: toxicity-cpu
+  namespaceSelector:
+    matchNames:
+      - default
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

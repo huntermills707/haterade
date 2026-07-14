@@ -176,49 +176,16 @@ def main() -> int:
         model.save_pretrained(model_dir)
         tokenizer.save_pretrained(tokenizer_dir)
 
-        # Log via mlflow.pyfunc with a custom PythonModel wrapper. We
-        # can't use mlflow.pytorch.log_model directly because its pyfunc
-        # predict() rejects the multi-tensor V2 DataFrame that MLServer
-        # produces from KServe V2 protocol input (raises "Input data
-        # should be pandas.DataFrame or numpy.ndarray" inside the
-        # forward() call). See toxicity_wrapper.py for the full story
-        # and the bridge implementation.
-        #
-        # The wrapper module lives at the repo root (not inside
-        # training/) on purpose: code_path ships exactly that file with
-        # the model. If it were under training/, code_path would have
-        # to point at the whole training/ dir and accidentally ship
-        # multi-GB checkpoint folders in training/runs/.
-        from toxicity_wrapper import ToxicityV2Wrapper
-
-        print(f"      mlflow.pyfunc.log_model (ToxicityV2Wrapper)…")
+        # Log HF model + tokenizer as plain artifacts. The serving path
+        # (Triton + ONNX, see ADR 0005) exports to ONNX from these
+        # artifacts via serving/gpu/export_onnx.py — no pyfunc needed.
+        # Previously this used mlflow.pyfunc.log_model with a custom
+        # ToxicityV2Wrapper for MLServer (ADR 0004, superseded by 0005).
+        print(f"      logging HF model artifacts…")
         t0 = time.time()
-        mlflow.pyfunc.log_model(
-            python_model=ToxicityV2Wrapper(),
-            artifact_path="model",
-            artifacts={"model_path": str(model_dir)},
-            # Ship the wrapper module with the model — cloudpickle
-            # records the class as `toxicity_wrapper.ToxicityV2Wrapper`,
-            # so the MLServer container needs toxicity_wrapper.py
-            # importable at load time. mlflow copies the file into the
-            # model's code/ subdir and prepends it to sys.path before
-            # unpickling. Pointing at a single file (not a dir) keeps
-            # the staged artifact tiny.
-            code_path=["toxicity_wrapper.py"],
-            extra_pip_requirements=["torch==2.5.1", "transformers==4.46.3"],
-            registered_model_name=(
-                cfg.registered_model_name if cfg.register_model else None
-            ),
-        )
-        print(f"      log_model done in {time.time()-t0:.1f}s")
-
-        # Tokenizer is small (~few hundred KB). Quick.
+        mlflow.log_artifacts(str(model_dir), artifact_path="model")
         mlflow.log_artifacts(str(tokenizer_dir), artifact_path="tokenizer")
-
-        # Note: we intentionally do NOT also upload model_save/ —
-        # mlflow.pytorch.log_model already serialized the weights, and
-        # uploading the raw HF state_dict too would just double the bytes
-        # and double the slow part. M2 can pull via `runs:/{id}/model`.
+        print(f"      done in {time.time()-t0:.1f}s")
 
         # Belt + suspenders: client-side create_model_version in case the
         # auto-register above didn't fire (it's a no-op when off).
