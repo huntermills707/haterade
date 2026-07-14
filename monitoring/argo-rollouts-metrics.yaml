@@ -1,0 +1,41 @@
+# Expose Argo Rollouts controller metrics to Prometheus.
+#
+# The Helm chart does not create a Service for the metrics port (8090), so we
+# add one here. A ServiceMonitor tells kube-prometheus-stack to scrape it.
+# These metrics power the M4 canary Grafana dashboard.
+apiVersion: v1
+kind: Service
+metadata:
+  name: argo-rollouts-metrics
+  namespace: argo-rollouts
+  labels:
+    app.kubernetes.io/name: argo-rollouts
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: argo-rollouts
+  ports:
+    - name: metrics
+      port: 8090
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argo-rollouts-metrics
+  namespace: argo-rollouts
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argo-rollouts
+  namespaceSelector:
+    matchNames:
+      - argo-rollouts
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

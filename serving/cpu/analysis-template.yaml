@@ -1,0 +1,47 @@
+# Prometheus analysis gates for the M4 canary rollout.
+#
+# Each canary step runs this AnalysisRun for 2 minutes. If any metric fails,
+# Argo Rollouts aborts the rollout and shifts traffic back to the stable
+# predictor.
+#
+# Metrics are filtered to version="2" because the canary placeholder exposes
+# the model as Triton version 2, while the stable predictor serves version 1.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: toxicity-cpu-canary
+  namespace: default
+spec:
+  metrics:
+    - name: success-rate
+      interval: 30s
+      count: 4
+      successCondition: "result[0] > 0.99"
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.observability.svc:9090
+          query: |
+            sum(rate(nv_inference_request_success{model="distilbert-toxicity",version="2"}[1m]))
+            /
+            (
+              sum(rate(nv_inference_request_success{model="distilbert-toxicity",version="2"}[1m]))
+              +
+              sum(rate(nv_inference_request_failure{model="distilbert-toxicity",version="2"}[1m]))
+            )
+
+    - name: queue-latency
+      interval: 30s
+      count: 4
+      # Threshold is intentionally lenient for the demo: the canary Rollout
+      # runs a single replica, so at 50% traffic it can see transient queue
+      # pressure. For production, tune this against SLO baselines.
+      successCondition: "result[0] < 300000"
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.observability.svc:9090
+          query: |
+            sum(rate(nv_inference_queue_duration_us{model="distilbert-toxicity",version="2"}[1m]))
+            /
+            sum(rate(nv_inference_request_success{model="distilbert-toxicity",version="2"}[1m]))

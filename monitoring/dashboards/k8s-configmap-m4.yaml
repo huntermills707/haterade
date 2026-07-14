@@ -1,0 +1,256 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-m4-cpu-canary
+  namespace: observability
+  labels:
+    grafana_dashboard: '1'
+data:
+  m4-cpu-canary.json: "{\n  \"annotations\": {\n    \"list\": [\n      {\n       \
+    \ \"builtIn\": 1,\n        \"datasource\": {\n          \"type\": \"prometheus\"\
+    ,\n          \"uid\": \"${datasource}\"\n        },\n        \"enable\": true,\n\
+    \        \"hide\": true,\n        \"iconColor\": \"rgba(0, 211, 255, 1)\",\n \
+    \       \"name\": \"Annotations & Alerts\",\n        \"type\": \"dashboard\"\n\
+    \      }\n    ]\n  },\n  \"editable\": true,\n  \"fiscalYearStartMonth\": 0,\n\
+    \  \"graphTooltip\": 1,\n  \"id\": null,\n  \"links\": [],\n  \"liveNow\": true,\n\
+    \  \"panels\": [\n    {\n      \"datasource\": {\n        \"type\": \"prometheus\"\
+    ,\n        \"uid\": \"${datasource}\"\n      },\n      \"fieldConfig\": {\n  \
+    \      \"defaults\": {\n          \"color\": {\n            \"mode\": \"thresholds\"\
+    \n          },\n          \"mappings\": [\n            {\n              \"options\"\
+    : {\n                \"from\": 0,\n                \"result\": {\n           \
+    \       \"text\": \"Abort\"\n                },\n                \"to\": 0\n \
+    \             },\n              \"type\": \"range\"\n            }\n         \
+    \ ],\n          \"thresholds\": {\n            \"mode\": \"absolute\",\n     \
+    \       \"steps\": [\n              {\n                \"color\": \"red\",\n \
+    \               \"value\": null\n              },\n              {\n         \
+    \       \"color\": \"green\",\n                \"value\": 1\n              }\n\
+    \            ]\n          },\n          \"unit\": \"none\"\n        },\n     \
+    \   \"overrides\": []\n      },\n      \"gridPos\": {\n        \"h\": 4,\n   \
+    \     \"w\": 6,\n        \"x\": 0,\n        \"y\": 0\n      },\n      \"id\":\
+    \ 1,\n      \"options\": {\n        \"colorMode\": \"background\",\n        \"\
+    graphMode\": \"none\",\n        \"justifyMode\": \"auto\",\n        \"orientation\"\
+    : \"auto\",\n        \"percentChangeColorMode\": \"standard\",\n        \"reduceOptions\"\
+    : {\n          \"calcs\": [\"lastNotNull\"],\n          \"fields\": \"\",\n  \
+    \        \"values\": false\n        },\n        \"showPercentChange\": false,\n\
+    \        \"textMode\": \"name\",\n        \"wideLayout\": true\n      },\n   \
+    \   \"pluginVersion\": \"10.4.0\",\n      \"targets\": [\n        {\n        \
+    \  \"datasource\": {\n            \"type\": \"prometheus\",\n            \"uid\"\
+    : \"${datasource}\"\n          },\n          \"expr\": \"rollout_phase{name=\\\
+    \"toxicity-cpu\\\"} == 1\",\n          \"format\": \"time_series\",\n        \
+    \  \"instant\": true,\n          \"legendFormat\": \"{{phase}}\",\n          \"\
+    refId\": \"A\"\n        }\n      ],\n      \"title\": \"Rollout Phase\",\n   \
+    \   \"type\": \"stat\"\n    },\n    {\n      \"datasource\": {\n        \"type\"\
+    : \"prometheus\",\n        \"uid\": \"${datasource}\"\n      },\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"color\": {\n            \"mode\": \"\
+    thresholds\"\n          },\n          \"mappings\": [],\n          \"thresholds\"\
+    : {\n            \"mode\": \"absolute\",\n            \"steps\": [\n         \
+    \     {\n                \"color\": \"red\",\n                \"value\": null\n\
+    \              },\n              {\n                \"color\": \"green\",\n  \
+    \              \"value\": 1\n              }\n            ]\n          },\n  \
+    \        \"unit\": \"none\"\n        },\n        \"overrides\": []\n      },\n\
+    \      \"gridPos\": {\n        \"h\": 4,\n        \"w\": 6,\n        \"x\": 6,\n\
+    \        \"y\": 0\n      },\n      \"id\": 2,\n      \"options\": {\n        \"\
+    colorMode\": \"background\",\n        \"graphMode\": \"none\",\n        \"justifyMode\"\
+    : \"auto\",\n        \"orientation\": \"auto\",\n        \"percentChangeColorMode\"\
+    : \"standard\",\n        \"reduceOptions\": {\n          \"calcs\": [\"lastNotNull\"\
+    ],\n          \"fields\": \"\",\n          \"values\": false\n        },\n   \
+    \     \"showPercentChange\": false,\n        \"textMode\": \"name\",\n       \
+    \ \"wideLayout\": true\n      },\n      \"pluginVersion\": \"10.4.0\",\n     \
+    \ \"targets\": [\n        {\n          \"datasource\": {\n            \"type\"\
+    : \"prometheus\",\n            \"uid\": \"${datasource}\"\n          },\n    \
+    \      \"expr\": \"analysis_run_phase{rollout=\\\"toxicity-cpu\\\"} == 1\",\n\
+    \          \"instant\": true,\n          \"legendFormat\": \"{{phase}}\",\n  \
+    \        \"refId\": \"A\"\n        }\n      ],\n      \"title\": \"Latest AnalysisRun\
+    \ Phase\",\n      \"type\": \"stat\"\n    },\n    {\n      \"datasource\": {\n\
+    \        \"type\": \"prometheus\",\n        \"uid\": \"${datasource}\"\n     \
+    \ },\n      \"fieldConfig\": {\n        \"defaults\": {\n          \"color\":\
+    \ {\n            \"mode\": \"palette-classic\"\n          },\n          \"custom\"\
+    : {\n            \"axisBorderShow\": false,\n            \"axisCenteredZero\"\
+    : false,\n            \"axisColorMode\": \"text\",\n            \"axisLabel\"\
+    : \"\",\n            \"axisPlacement\": \"auto\",\n            \"barAlignment\"\
+    : 0,\n            \"drawStyle\": \"line\",\n            \"fillOpacity\": 10,\n\
+    \            \"gradientMode\": \"none\",\n            \"hideFrom\": {\n      \
+    \        \"legend\": false,\n              \"tooltip\": false,\n             \
+    \ \"viz\": false\n            },\n            \"insertNulls\": false,\n      \
+    \      \"lineInterpolation\": \"linear\",\n            \"lineWidth\": 1,\n   \
+    \         \"pointSize\": 5,\n            \"scaleDistribution\": {\n          \
+    \    \"type\": \"linear\"\n            },\n            \"showPoints\": \"never\"\
+    ,\n            \"spanNulls\": false,\n            \"stacking\": {\n          \
+    \    \"group\": \"A\",\n              \"mode\": \"none\"\n            },\n   \
+    \         \"thresholdsStyle\": {\n              \"mode\": \"off\"\n          \
+    \  }\n          },\n          \"mappings\": [],\n          \"thresholds\": {\n\
+    \            \"mode\": \"absolute\",\n            \"steps\": [\n             \
+    \ {\n                \"color\": \"green\",\n                \"value\": null\n\
+    \              }\n            ]\n          },\n          \"unit\": \"none\"\n\
+    \        },\n        \"overrides\": []\n      },\n      \"gridPos\": {\n     \
+    \   \"h\": 8,\n        \"w\": 12,\n        \"x\": 12,\n        \"y\": 0\n    \
+    \  },\n      \"id\": 3,\n      \"options\": {\n        \"legend\": {\n       \
+    \   \"calcs\": [\"mean\", \"max\"],\n          \"displayMode\": \"table\",\n \
+    \         \"placement\": \"right\",\n          \"showLegend\": true\n        },\n\
+    \        \"tooltip\": {\n          \"mode\": \"multi\",\n          \"sort\": \"\
+    none\"\n        }\n      },\n      \"pluginVersion\": \"10.4.0\",\n      \"targets\"\
+    : [\n        {\n          \"datasource\": {\n            \"type\": \"prometheus\"\
+    ,\n            \"uid\": \"${datasource}\"\n          },\n          \"expr\": \"\
+    rollout_info_replicas_available{name=\\\"toxicity-cpu\\\"}\",\n          \"legendFormat\"\
+    : \"available\",\n          \"refId\": \"A\"\n        },\n        {\n        \
+    \  \"datasource\": {\n            \"type\": \"prometheus\",\n            \"uid\"\
+    : \"${datasource}\"\n          },\n          \"expr\": \"rollout_info_replicas_desired{name=\\\
+    \"toxicity-cpu\\\"}\",\n          \"legendFormat\": \"desired\",\n          \"\
+    refId\": \"B\"\n        },\n        {\n          \"datasource\": {\n         \
+    \   \"type\": \"prometheus\",\n            \"uid\": \"${datasource}\"\n      \
+    \    },\n          \"expr\": \"rollout_info_replicas_updated{name=\\\"toxicity-cpu\\\
+    \"}\",\n          \"legendFormat\": \"updated (canary)\",\n          \"refId\"\
+    : \"C\"\n        }\n      ],\n      \"title\": \"Rollout Replicas\",\n      \"\
+    type\": \"timeseries\"\n    },\n    {\n      \"datasource\": {\n        \"type\"\
+    : \"prometheus\",\n        \"uid\": \"${datasource}\"\n      },\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {\n          \"color\": {\n            \"mode\": \"\
+    palette-classic\"\n          },\n          \"custom\": {\n            \"axisBorderShow\"\
+    : false,\n            \"axisCenteredZero\": false,\n            \"axisColorMode\"\
+    : \"text\",\n            \"axisLabel\": \"\",\n            \"axisPlacement\":\
+    \ \"auto\",\n            \"barAlignment\": 0,\n            \"drawStyle\": \"line\"\
+    ,\n            \"fillOpacity\": 10,\n            \"gradientMode\": \"none\",\n\
+    \            \"hideFrom\": {\n              \"legend\": false,\n             \
+    \ \"tooltip\": false,\n              \"viz\": false\n            },\n        \
+    \    \"insertNulls\": false,\n            \"lineInterpolation\": \"linear\",\n\
+    \            \"lineWidth\": 1,\n            \"pointSize\": 5,\n            \"\
+    scaleDistribution\": {\n              \"type\": \"linear\"\n            },\n \
+    \           \"showPoints\": \"never\",\n            \"spanNulls\": false,\n  \
+    \          \"stacking\": {\n              \"group\": \"A\",\n              \"\
+    mode\": \"normal\"\n            },\n            \"thresholdsStyle\": {\n     \
+    \         \"mode\": \"off\"\n            }\n          },\n          \"mappings\"\
+    : [],\n          \"thresholds\": {\n            \"mode\": \"absolute\",\n    \
+    \        \"steps\": [\n              {\n                \"color\": \"green\",\n\
+    \                \"value\": null\n              }\n            ]\n          },\n\
+    \          \"unit\": \"reqps\"\n        },\n        \"overrides\": []\n      },\n\
+    \      \"gridPos\": {\n        \"h\": 8,\n        \"w\": 12,\n        \"x\": 0,\n\
+    \        \"y\": 4\n      },\n      \"id\": 4,\n      \"options\": {\n        \"\
+    legend\": {\n          \"calcs\": [\"mean\", \"max\"],\n          \"displayMode\"\
+    : \"table\",\n          \"placement\": \"right\",\n          \"showLegend\": true\n\
+    \        },\n        \"tooltip\": {\n          \"mode\": \"multi\",\n        \
+    \  \"sort\": \"none\"\n        }\n      },\n      \"pluginVersion\": \"10.4.0\"\
+    ,\n      \"targets\": [\n        {\n          \"datasource\": {\n            \"\
+    type\": \"prometheus\",\n            \"uid\": \"${datasource}\"\n          },\n\
+    \          \"expr\": \"sum(rate(nv_inference_request_success{model=\\\"distilbert-toxicity\\\
+    \",version=\\\"1\\\"}[1m]))\",\n          \"legendFormat\": \"stable (v1)\",\n\
+    \          \"refId\": \"A\"\n        },\n        {\n          \"datasource\":\
+    \ {\n            \"type\": \"prometheus\",\n            \"uid\": \"${datasource}\"\
+    \n          },\n          \"expr\": \"sum(rate(nv_inference_request_success{model=\\\
+    \"distilbert-toxicity\\\",version=\\\"2\\\"}[1m]))\",\n          \"legendFormat\"\
+    : \"canary (v2)\",\n          \"refId\": \"B\"\n        }\n      ],\n      \"\
+    title\": \"Inference Request Rate by Version\",\n      \"type\": \"timeseries\"\
+    \n    },\n    {\n      \"datasource\": {\n        \"type\": \"prometheus\",\n\
+    \        \"uid\": \"${datasource}\"\n      },\n      \"fieldConfig\": {\n    \
+    \    \"defaults\": {\n          \"color\": {\n            \"mode\": \"palette-classic\"\
+    \n          },\n          \"custom\": {\n            \"axisBorderShow\": false,\n\
+    \            \"axisCenteredZero\": false,\n            \"axisColorMode\": \"text\"\
+    ,\n            \"axisLabel\": \"\",\n            \"axisPlacement\": \"auto\",\n\
+    \            \"barAlignment\": 0,\n            \"drawStyle\": \"line\",\n    \
+    \        \"fillOpacity\": 10,\n            \"gradientMode\": \"none\",\n     \
+    \       \"hideFrom\": {\n              \"legend\": false,\n              \"tooltip\"\
+    : false,\n              \"viz\": false\n            },\n            \"insertNulls\"\
+    : false,\n            \"lineInterpolation\": \"linear\",\n            \"lineWidth\"\
+    : 1,\n            \"pointSize\": 5,\n            \"scaleDistribution\": {\n  \
+    \            \"type\": \"linear\"\n            },\n            \"showPoints\"\
+    : \"never\",\n            \"spanNulls\": false,\n            \"stacking\": {\n\
+    \              \"group\": \"A\",\n              \"mode\": \"none\"\n         \
+    \   },\n            \"thresholdsStyle\": {\n              \"mode\": \"line+area\"\
+    \n            }\n          },\n          \"mappings\": [],\n          \"thresholds\"\
+    : {\n            \"mode\": \"absolute\",\n            \"steps\": [\n         \
+    \     {\n                \"color\": \"green\",\n                \"value\": null\n\
+    \              },\n              {\n                \"color\": \"red\",\n    \
+    \            \"value\": 0.99\n              }\n            ]\n          },\n \
+    \         \"unit\": \"percentunit\"\n        },\n        \"overrides\": []\n \
+    \     },\n      \"gridPos\": {\n        \"h\": 8,\n        \"w\": 12,\n      \
+    \  \"x\": 12,\n        \"y\": 8\n      },\n      \"id\": 5,\n      \"options\"\
+    : {\n        \"legend\": {\n          \"calcs\": [\"mean\", \"min\"],\n      \
+    \    \"displayMode\": \"table\",\n          \"placement\": \"right\",\n      \
+    \    \"showLegend\": true\n        },\n        \"tooltip\": {\n          \"mode\"\
+    : \"multi\",\n          \"sort\": \"none\"\n        }\n      },\n      \"pluginVersion\"\
+    : \"10.4.0\",\n      \"targets\": [\n        {\n          \"datasource\": {\n\
+    \            \"type\": \"prometheus\",\n            \"uid\": \"${datasource}\"\
+    \n          },\n          \"expr\": \"sum(rate(nv_inference_request_success{model=\\\
+    \"distilbert-toxicity\\\",version=\\\"2\\\"}[1m])) / (sum(rate(nv_inference_request_success{model=\\\
+    \"distilbert-toxicity\\\",version=\\\"2\\\"}[1m])) + sum(rate(nv_inference_request_failure{model=\\\
+    \"distilbert-toxicity\\\",version=\\\"2\\\"}[1m])))\",\n          \"legendFormat\"\
+    : \"canary success rate\",\n          \"refId\": \"A\"\n        }\n      ],\n\
+    \      \"title\": \"Canary Success Rate\",\n      \"type\": \"timeseries\"\n \
+    \   },\n    {\n      \"datasource\": {\n        \"type\": \"prometheus\",\n  \
+    \      \"uid\": \"${datasource}\"\n      },\n      \"fieldConfig\": {\n      \
+    \  \"defaults\": {\n          \"color\": {\n            \"mode\": \"palette-classic\"\
+    \n          },\n          \"custom\": {\n            \"axisBorderShow\": false,\n\
+    \            \"axisCenteredZero\": false,\n            \"axisColorMode\": \"text\"\
+    ,\n            \"axisLabel\": \"\",\n            \"axisPlacement\": \"auto\",\n\
+    \            \"barAlignment\": 0,\n            \"drawStyle\": \"line\",\n    \
+    \        \"fillOpacity\": 10,\n            \"gradientMode\": \"none\",\n     \
+    \       \"hideFrom\": {\n              \"legend\": false,\n              \"tooltip\"\
+    : false,\n              \"viz\": false\n            },\n            \"insertNulls\"\
+    : false,\n            \"lineInterpolation\": \"linear\",\n            \"lineWidth\"\
+    : 1,\n            \"pointSize\": 5,\n            \"scaleDistribution\": {\n  \
+    \            \"type\": \"linear\"\n            },\n            \"showPoints\"\
+    : \"never\",\n            \"spanNulls\": false,\n            \"stacking\": {\n\
+    \              \"group\": \"A\",\n              \"mode\": \"none\"\n         \
+    \   },\n            \"thresholdsStyle\": {\n              \"mode\": \"line+area\"\
+    \n            }\n          },\n          \"mappings\": [],\n          \"thresholds\"\
+    : {\n            \"mode\": \"absolute\",\n            \"steps\": [\n         \
+    \     {\n                \"color\": \"green\",\n                \"value\": null\n\
+    \              },\n              {\n                \"color\": \"red\",\n    \
+    \            \"value\": 300000\n              }\n            ]\n          },\n\
+    \          \"unit\": \"\xB5s\"\n        },\n        \"overrides\": []\n      },\n\
+    \      \"gridPos\": {\n        \"h\": 8,\n        \"w\": 12,\n        \"x\": 0,\n\
+    \        \"y\": 12\n      },\n      \"id\": 6,\n      \"options\": {\n       \
+    \ \"legend\": {\n          \"calcs\": [\"mean\", \"max\"],\n          \"displayMode\"\
+    : \"table\",\n          \"placement\": \"right\",\n          \"showLegend\": true\n\
+    \        },\n        \"tooltip\": {\n          \"mode\": \"multi\",\n        \
+    \  \"sort\": \"none\"\n        }\n      },\n      \"pluginVersion\": \"10.4.0\"\
+    ,\n      \"targets\": [\n        {\n          \"datasource\": {\n            \"\
+    type\": \"prometheus\",\n            \"uid\": \"${datasource}\"\n          },\n\
+    \          \"expr\": \"sum(rate(nv_inference_queue_duration_us{model=\\\"distilbert-toxicity\\\
+    \",version=\\\"2\\\"}[1m])) / sum(rate(nv_inference_request_success{model=\\\"\
+    distilbert-toxicity\\\",version=\\\"2\\\"}[1m]))\",\n          \"legendFormat\"\
+    : \"canary avg queue latency\",\n          \"refId\": \"A\"\n        }\n     \
+    \ ],\n      \"title\": \"Canary Queue Latency\",\n      \"type\": \"timeseries\"\
+    \n    },\n    {\n      \"datasource\": {\n        \"type\": \"prometheus\",\n\
+    \        \"uid\": \"${datasource}\"\n      },\n      \"fieldConfig\": {\n    \
+    \    \"defaults\": {\n          \"color\": {\n            \"mode\": \"palette-classic\"\
+    \n          },\n          \"custom\": {\n            \"axisBorderShow\": false,\n\
+    \            \"axisCenteredZero\": false,\n            \"axisColorMode\": \"text\"\
+    ,\n            \"axisLabel\": \"\",\n            \"axisPlacement\": \"auto\",\n\
+    \            \"barAlignment\": 0,\n            \"drawStyle\": \"line\",\n    \
+    \        \"fillOpacity\": 10,\n            \"gradientMode\": \"none\",\n     \
+    \       \"hideFrom\": {\n              \"legend\": false,\n              \"tooltip\"\
+    : false,\n              \"viz\": false\n            },\n            \"insertNulls\"\
+    : false,\n            \"lineInterpolation\": \"linear\",\n            \"lineWidth\"\
+    : 1,\n            \"pointSize\": 5,\n            \"scaleDistribution\": {\n  \
+    \            \"type\": \"linear\"\n            },\n            \"showPoints\"\
+    : \"never\",\n            \"spanNulls\": false,\n            \"stacking\": {\n\
+    \              \"group\": \"A\",\n              \"mode\": \"none\"\n         \
+    \   },\n            \"thresholdsStyle\": {\n              \"mode\": \"off\"\n\
+    \            }\n          },\n          \"mappings\": [],\n          \"thresholds\"\
+    : {\n            \"mode\": \"absolute\",\n            \"steps\": [\n         \
+    \     {\n                \"color\": \"green\",\n                \"value\": null\n\
+    \              }\n            ]\n          },\n          \"unit\": \"percent\"\
+    \n        },\n        \"overrides\": []\n      },\n      \"gridPos\": {\n    \
+    \    \"h\": 8,\n        \"w\": 24,\n        \"x\": 0,\n        \"y\": 20\n   \
+    \   },\n      \"id\": 7,\n      \"options\": {\n        \"legend\": {\n      \
+    \    \"calcs\": [\"mean\", \"max\"],\n          \"displayMode\": \"table\",\n\
+    \          \"placement\": \"right\",\n          \"showLegend\": true\n       \
+    \ },\n        \"tooltip\": {\n          \"mode\": \"multi\",\n          \"sort\"\
+    : \"none\"\n        }\n      },\n      \"pluginVersion\": \"10.4.0\",\n      \"\
+    targets\": [\n        {\n          \"datasource\": {\n            \"type\": \"\
+    prometheus\",\n            \"uid\": \"${datasource}\"\n          },\n        \
+    \  \"expr\": \"rate(container_cpu_usage_seconds_total{pod=~\\\"toxicity-cpu-.*\\\
+    \"}[1m]) * 100\",\n          \"legendFormat\": \"{{pod}}\",\n          \"refId\"\
+    : \"A\"\n        }\n      ],\n      \"title\": \"Predictor CPU Utilization\",\n\
+    \      \"type\": \"timeseries\"\n    }\n  ],\n  \"refresh\": \"5s\",\n  \"schemaVersion\"\
+    : 39,\n  \"tags\": [\"m4\", \"kserve\", \"triton\", \"argorollouts\", \"canary\"\
+    ],\n  \"templating\": {\n    \"list\": [\n      {\n        \"current\": {\n  \
+    \        \"selected\": false,\n          \"text\": \"Prometheus\",\n         \
+    \ \"value\": \"Prometheus\"\n        },\n        \"hide\": 0,\n        \"includeAll\"\
+    : false,\n        \"label\": \"Datasource\",\n        \"multi\": false,\n    \
+    \    \"name\": \"datasource\",\n        \"options\": [],\n        \"query\": \"\
+    prometheus\",\n        \"queryValue\": \"\",\n        \"refresh\": 1,\n      \
+    \  \"regex\": \"\",\n        \"skipUrlSync\": false,\n        \"type\": \"datasource\"\
+    \n      }\n    ]\n  },\n  \"time\": {\n    \"from\": \"now-15m\",\n    \"to\"\
+    : \"now\"\n  },\n  \"timepicker\": {},\n  \"timezone\": \"browser\",\n  \"title\"\
+    : \"M4 \u2014 CPU Canary\",\n  \"uid\": \"m4-cpu-canary\",\n  \"version\": 1,\n\
+    \  \"weekStart\": \"\"\n}\n"

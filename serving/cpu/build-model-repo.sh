@@ -81,4 +81,5 @@ kubectl -n default delete pod triton-cpu-cp --ignore-not-found
 
 echo ""
 echo "Done. Model repository is on PVC triton-cpu-model-repo."
-echo "Deploy with: kubectl apply -f $SCRIPT_DIR/inferenceservice-triton.yaml"
+echo "Deploy with: kubectl apply -f $SCRIPT_DIR/rollout.yaml"
+echo "Canary v2:    ./serving/cpu/canary/build-canary-placeholder.sh"

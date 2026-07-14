@@ -30,6 +30,150 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "from": 0,
+                "result": {
+                  "text": "Abort"
+                },
+                "to": 0
+              },
+              "type": "range"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rollout_phase{name=\"toxicity-cpu\"} == 1",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "{{phase}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Rollout Phase",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "analysis_run_phase{rollout=\"toxicity-cpu\"} == 1",
+          "instant": true,
+          "legendFormat": "{{phase}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest AnalysisRun Phase",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -74,17 +218,17 @@
               }
             ]
           },
-          "unit": "reqps"
+          "unit": "none"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
+        "x": 12,
         "y": 0
       },
-      "id": 1,
+      "id": 3,
       "options": {
         "legend": {
           "calcs": ["mean", "max"],
@@ -104,12 +248,30 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(nv_inference_request_success{model=\"distilbert-toxicity\"}[1m]))",
-          "legendFormat": "inference req/s",
+          "expr": "rollout_info_replicas_available{name=\"toxicity-cpu\"}",
+          "legendFormat": "available",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rollout_info_replicas_desired{name=\"toxicity-cpu\"}",
+          "legendFormat": "desired",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rollout_info_replicas_updated{name=\"toxicity-cpu\"}",
+          "legendFormat": "updated (canary)",
+          "refId": "C"
         }
       ],
-      "title": "Inference Request Rate",
+      "title": "Rollout Replicas",
       "type": "timeseries"
     },
     {
@@ -120,45 +282,72 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
-          "max": 3,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
-                "value": 0
+                "color": "green",
+                "value": null
               }
             ]
           },
-          "unit": "none"
+          "unit": "reqps"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 0
+        "x": 0,
+        "y": 4
       },
-      "id": 2,
+      "id": 4,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
         },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "pluginVersion": "10.4.0",
       "targets": [
@@ -167,13 +356,22 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(kube_replicaset_spec_replicas{replicaset=~\"toxicity-cpu-.*\"})",
-          "legendFormat": "replicas",
+          "expr": "sum(rate(nv_inference_request_success{model=\"distilbert-toxicity\",version=\"1\"}[1m]))",
+          "legendFormat": "stable (v1)",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(nv_inference_request_success{model=\"distilbert-toxicity\",version=\"2\"}[1m]))",
+          "legendFormat": "canary (v2)",
+          "refId": "B"
         }
       ],
-      "title": "Predictor Replicas",
-      "type": "stat"
+      "title": "Inference Request Rate by Version",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -227,24 +425,24 @@
               },
               {
                 "color": "red",
-                "value": 50000
+                "value": 0.99
               }
             ]
           },
-          "unit": "µs/s"
+          "unit": "percentunit"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
+        "x": 12,
         "y": 8
       },
-      "id": 3,
+      "id": 5,
       "options": {
         "legend": {
-          "calcs": ["mean", "max"],
+          "calcs": ["mean", "min"],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
@@ -261,12 +459,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "avg(rate(nv_inference_queue_duration_us{model=\"distilbert-toxicity\"}[30s]))",
-          "legendFormat": "queue duration (µs/s) — KEDA signal",
+          "expr": "sum(rate(nv_inference_request_success{model=\"distilbert-toxicity\",version=\"2\"}[1m])) / (sum(rate(nv_inference_request_success{model=\"distilbert-toxicity\",version=\"2\"}[1m])) + sum(rate(nv_inference_request_failure{model=\"distilbert-toxicity\",version=\"2\"}[1m])))",
+          "legendFormat": "canary success rate",
           "refId": "A"
         }
       ],
-      "title": "KEDA Trigger: Queue Duration",
+      "title": "Canary Success Rate",
       "type": "timeseries"
     },
     {
@@ -308,7 +506,7 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line+area"
             }
           },
           "mappings": [],
@@ -318,6 +516,10 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 300000
               }
             ]
           },
@@ -328,10 +530,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 8
+        "x": 0,
+        "y": 12
       },
-      "id": 4,
+      "id": 6,
       "options": {
         "legend": {
           "calcs": ["mean", "max"],
@@ -351,21 +553,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "rate(nv_inference_compute_infer_duration_us{model=\"distilbert-toxicity\"}[1m]) / rate(nv_inference_request_success{model=\"distilbert-toxicity\"}[1m]) / 1000",
-          "legendFormat": "avg compute latency",
+          "expr": "sum(rate(nv_inference_queue_duration_us{model=\"distilbert-toxicity\",version=\"2\"}[1m])) / sum(rate(nv_inference_request_success{model=\"distilbert-toxicity\",version=\"2\"}[1m]))",
+          "legendFormat": "canary avg queue latency",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "rate(nv_inference_queue_duration_us{model=\"distilbert-toxicity\"}[1m]) / rate(nv_inference_request_success{model=\"distilbert-toxicity\"}[1m]) / 1000",
-          "legendFormat": "avg queue latency",
-          "refId": "B"
         }
       ],
-      "title": "Average Inference Latency",
+      "title": "Canary Queue Latency",
       "type": "timeseries"
     },
     {
@@ -428,9 +621,9 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 20
       },
-      "id": 5,
+      "id": 7,
       "options": {
         "legend": {
           "calcs": ["mean", "max"],
@@ -450,7 +643,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "rate(container_cpu_usage_seconds_total{pod=~\"toxicity-cpu-predictor-.*\"}[1m]) * 100",
+          "expr": "rate(container_cpu_usage_seconds_total{pod=~\"toxicity-cpu-.*\"}[1m]) * 100",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -461,7 +654,7 @@
   ],
   "refresh": "5s",
   "schemaVersion": 39,
-  "tags": ["m3", "kserve", "triton", "autoscaling"],
+  "tags": ["m4", "kserve", "triton", "argorollouts", "canary"],
   "templating": {
     "list": [
       {
@@ -491,8 +684,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "M3 — CPU Autoscaling",
-  "uid": "m3-cpu-autoscaling",
+  "title": "M4 — CPU Canary",
+  "uid": "m4-cpu-canary",
   "version": 1,
   "weekStart": ""
 }

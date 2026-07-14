@@ -24,6 +24,11 @@ The project requires two capabilities that appear to conflict:
 - **Scale-to-zero** (M3): when no inference traffic is flowing, the
   predictor pod should scale to 0 replicas to free resources. This is
   the headline M3 demo.
+
+  > **Amendment (2026-07-14):** M3 was redefined as "traffic sim +
+  > observe autoscaling" with `minReplicas: 1`. True scale-to-zero was
+  > dropped per ADR 0007.
+
 - **Canary traffic splitting** (M4): Argo Rollouts will progressively
   shift traffic between an old and new model version (e.g., 5% → 25% →
   100%) using Istio VirtualService weight manipulation, with Prometheus
@@ -42,12 +47,24 @@ layer cannot be delegated to Argo.
 
 Use **RawDeployment + KEDA** for all InferenceServices on both clusters.
 
+> **Amendment (2026-07-14):** M3 scope changed after live verification.
+> True scale-to-zero was dropped; `minReplicas` is now `1` on the CPU
+> predictor. See ADR 0007 for the rationale. The platform choice of
+> RawDeployment + KEDA remains unchanged.
+
 - `defaultDeploymentMode: RawDeployment` in the `inferenceservice-config`
   ConfigMap (set by `infra/install-platform-stack.sh:68-76`).
 - `serving.kserve.io/autoscalerClass: keda` annotation on each ISVC.
-- `minReplicas: 0` on the predictor for scale-to-zero.
+- ~~`minReplicas: 0` on the predictor for scale-to-zero.~~
+  `minReplicas: 1` on the CPU predictor (ADR 0007).
 - KEDA `External` triggers backed by Prometheus queries against
   runtime-specific metrics.
+
+> **Amendment (2026-07-14):** M4 further changed the CPU predictor
+> architecture. Because Argo Rollouts' Istio integration requires owning
+> both stable and canary Services, the CPU predictor is now an Argo
+> Rollout rather than a KServe InferenceService. The GPU predictor remains
+> a KServe ISVC. See ADR 0008.
 
 ### GPU scaling triggers (scaffolded, pending GPU hardware)
 
@@ -107,6 +124,12 @@ that doesn't apply on CPU.
    `minReplicas: 0`, and add the `autoScaling.metrics` block with the
    External trigger above.
 
+   > **Amendment (2026-07-14):** The CPU predictor is no longer a KServe
+   > ISVC. It was replaced by an Argo Rollout in M4. The equivalent KEDA
+   > configuration now lives in `serving/cpu/scaledobject.yaml` and
+   > targets the Rollout directly. The `serving/cpu/inferenceservice-triton.yaml`
+   > file has been removed.
+
 ## Consequences
 
 ### Positive
@@ -133,6 +156,10 @@ that doesn't apply on CPU.
   with traffic-split metadata built in. With RawDeployment, M4's
   canary must be managed entirely by Argo Rollouts (which is the plan,
   but it means more Argo Rollouts YAML to write).
+
+  > **Amendment (2026-07-14):** The plan changed from "more Argo
+  > Rollouts YAML alongside KServe" to "Argo Rollouts owns the CPU
+  > predictor entirely." See ADR 0008.
 - **KEDA adds a moving part.** The KEDA operator + its ScaledObject
   controller must stay healthy. If KEDA goes down, autoscaling stops.
   Knative's autoscaler is embedded in the Serving controller — fewer
@@ -203,6 +230,12 @@ Rejected because:
   decision to M4 doesn't make it easier — it just means re-testing
   the serving path a second time.
 
+> **Amendment (2026-07-14):** The project did end up making a
+> significant serving-path change at M4, but it was moving the CPU
+> predictor from a KServe ISVC to an Argo Rollout rather than toggling
+> KServe deployment modes. The reason was the same: avoid two
+> controllers fighting over the same resources.
+
 ## References
 
 - KServe deployment modes:
@@ -219,7 +252,8 @@ Rejected because:
 - KEDA install: `infra/install-platform-stack.sh:85-88`
 - GPU ISVC with KEDA triggers: `serving/gpu/inferenceservice-triton.yaml`
 - GPU ServiceMonitor: `serving/gpu/triton-servicemonitor.yaml`
-- CPU ISVC (Triton + ONNX): `serving/cpu/inferenceservice-triton.yaml`
+- CPU predictor (Argo Rollout): `serving/cpu/rollout.yaml`
+- CPU KEDA ScaledObject: `serving/cpu/scaledobject.yaml`
 - CPU ServiceMonitor: `serving/cpu/triton-servicemonitor.yaml`
 - Triton metrics (verified against `nvcr.io/nvidia/tritonserver:23.05-py3`
   on the running `toxicity-cpu` predictor, 2026-07-14)

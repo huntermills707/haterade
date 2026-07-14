@@ -2,6 +2,34 @@
 
 Grafana dashboards for observing the MLOps pipeline.
 
+## M4 — CPU Canary
+
+`dashboards/m4-cpu-canary.json` is a Grafana dashboard for milestone M4:
+
+- Rollout phase and AnalysisRun phase
+- Rollout replicas (available / desired / updated-canary)
+- Inference request rate split by model version (stable v1 vs canary v2)
+- Canary success rate
+- Canary queue latency
+- Predictor CPU utilization by pod
+
+### Deploy
+
+```bash
+kubectl apply -f monitoring/dashboards/k8s-configmap-m4.yaml
+```
+
+### Argo Rollouts metrics
+
+Argo Rollouts controller metrics are not exposed by the Helm chart by default.
+`monitoring/argo-rollouts-metrics.yaml` adds a Service + ServiceMonitor so
+Prometheus scrapes the controller's `/metrics` endpoint on port 8090. The M4
+dashboard depends on these metrics.
+
+```bash
+kubectl apply -f monitoring/argo-rollouts-metrics.yaml
+```
+
 ## M3 — CPU Autoscaling
 
 `dashboards/m3-cpu-autoscaling.json` is a Grafana dashboard for milestone M3:
@@ -60,4 +88,13 @@ kubectl create configmap grafana-dashboard-m3-cpu-autoscaling \
   --from-file=m3-cpu-autoscaling.json=monitoring/dashboards/m3-cpu-autoscaling.json \
   -n observability --dry-run=client -o yaml | \
   kubectl label --local -f - grafana_dashboard=1 -o yaml > monitoring/dashboards/k8s-configmap.yaml
+```
+
+Edit `dashboards/m4-cpu-canary.json`, then regenerate the ConfigMap:
+
+```bash
+kubectl create configmap grafana-dashboard-m4-cpu-canary \
+  --from-file=m4-cpu-canary.json=monitoring/dashboards/m4-cpu-canary.json \
+  -n observability --dry-run=client -o yaml | \
+  kubectl label --local -f - grafana_dashboard=1 -o yaml > monitoring/dashboards/k8s-configmap-m4.yaml
 ```

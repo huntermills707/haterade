@@ -211,7 +211,11 @@ no autoscaling, more code to maintain.
 - GPU build script (TRT engine): `serving/gpu/build-engine.sh`
 - CPU build script (ONNX model repo): `serving/cpu/build-model-repo.sh`
 - GPU ISVC manifest: `serving/gpu/inferenceservice-triton.yaml`
-- CPU ISVC manifest: `serving/cpu/inferenceservice-triton.yaml`
+- CPU predictor manifest: `serving/cpu/rollout.yaml`
+  > **Amendment (2026-07-14):** The CPU predictor was converted from a
+  > KServe ISVC to an Argo Rollout in M4. The old
+  > `serving/cpu/inferenceservice-triton.yaml` file has been removed. See
+  > ADR 0008.
 - ADR 0003 (RawDeployment + KEDA) — Triton's `nv_inference_queue_duration_us`
   is the KEDA trigger on both clusters.
 - ADR 0004 (MLServer, superseded) — the decision this ADR overturns.

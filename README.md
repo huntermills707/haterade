@@ -22,7 +22,7 @@ flowchart LR
 
     subgraph CPU["CPU cluster — k3s (laptop)"]
         direction TB
-        TritonCPU["KServe ISVC<br/>Triton + ONNX<br/>V2 protocol"]
+        TritonCPU["Argo Rollout<br/>Triton + ONNX<br/>V2 protocol"]
     end
 
     subgraph GPU["GPU cluster — k3s (2× RTX 2060 Super)"]
@@ -56,7 +56,7 @@ autoscaler trigger differ. See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-a
 | Runtime | Triton + ONNX backend (`model.onnx`) | Triton + TensorRT backend (`model.plan`) |
 | Handoff story | MLflow → ONNX export → PVC → Triton | MLflow → ONNX → `trtexec` → TRT plan → Triton |
 | Autoscaler signal | Triton queue depth | Triton queue depth + DCGM GPU util |
-| Headline demo | Scale-to-zero, canary | GPU cost optimization, perf engineering |
+| Headline demo | Autoscaling, Argo Rollouts canary | GPU cost optimization, perf engineering |
 
 See [ADR 0002](docs/adr/0002-use-k3s-for-both-clusters.md) for the unified
 runtime rationale (supersedes [ADR 0001](docs/adr/0001-use-kind-for-cpu-and-k3s-for-gpu.md)
@@ -99,14 +99,17 @@ after M0 verification surfaced kind-specific issues).
 │       ├── bootstrap.sh                            sources shared k3s (GPU) + GPU Operator + platform stack
 │       └── gpu-operator-values.yaml                device plugin + DCGM, host driver
 ├── serving/
-│   ├── cpu/                                        Triton + ONNX predictor
-│   └── gpu/                                        Triton + TensorRT predictor
+│   ├── cpu/                                        Triton + ONNX predictor (Argo Rollout from M4)
+│   ├── cpu/canary/                                 M4 canary artifacts
+│   └── gpu/                                        Triton + TensorRT predictor (KServe ISVC)
 ├── traffic/                                        Locust load tests (M3)
-└── monitoring/                                     Grafana dashboards
+└── monitoring/                                     Grafana dashboards + Argo Rollouts metrics
 ```
 
-`traffic/` (Locust) and `monitoring/` (Grafana dashboards) are in place for M3.
-Argo Rollouts remain M4.
+`traffic/` (Locust) is in place for M3, `monitoring/` has dashboards for M3
+and M4, and M4 plumbing is in `serving/cpu/rollout.yaml`,
+`serving/cpu/scaledobject.yaml`, and `serving/cpu/canary/`; live canary
+verification is in progress.
 
 ## Milestones
 
@@ -116,7 +119,7 @@ Argo Rollouts remain M4.
 | M1 | Train DistilBERT on Jigsaw, log to MLflow | **Verified on CPU** (run `4927d59563184da6a5861765de043394`, auroc_macro 0.9795). See [ADR 0006](docs/adr/0006-use-distilbert-over-bert.md). |
 | M2 | Serve v1 via KServe | **Verified on CPU** (Triton + ONNX backend; ISVC `toxicity-cpu` reaches Ready, V2 inference through Istio Gateway works end-to-end). GPU scaffolded (Triton + TRT); GPU cluster pending hardware. See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md). |
 | M3 | Traffic sim + observe autoscaling | **Verified on CPU** — Locust `traffic/` drove load through the Istio gateway; KEDA scaled `toxicity-cpu` from 1 → 3 replicas on Triton queue-duration and scaled back to 1 after traffic stopped. True scale-to-zero intentionally dropped; see [ADR 0007](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md). Grafana M3 dashboard deployed. GPU side pending hardware. |
-| M4 | Argo Rollouts canary with Prometheus analysis | Not started |
+| M4 | Argo Rollouts canary with Prometheus analysis | **Verified on CPU** — placeholder v2 canary ran end-to-end through 5% → 25% → 50% → 100% with `setCanaryScale: 3`, all Prometheus analysis gates passed, and traffic reverted to 100% stable after reset. Grafana M4 dashboard deployed. GPU side pending hardware. See [ADR 0008](docs/adr/0008-argo-rollouts-canary-with-kserve-rawdeployment.md) and [ADR 0009](docs/adr/0009-placeholder-v2-artifact-for-m4.md). |
 | M5 | v2 retrain + automated promotion | Not started |
 
 Stretch goals (one-line each, in `docs/adr/` as they become decisions):
@@ -206,6 +209,42 @@ kubectl apply -f serving/gpu/triton-servicemonitor.yaml
 ./serving/gpu/query.sh
 ```
 
+## M4 — Canary with Argo Rollouts
+
+The CPU predictor is now an Argo Rollout so M4 can run Istio traffic-split
+canaries with Prometheus analysis gates.
+
+```bash
+# 1. Build the v1 model repo and deploy the stable Rollout.
+./serving/cpu/build-model-repo.sh
+kubectl apply -f serving/cpu/rollout.yaml
+kubectl apply -f serving/cpu/scaledobject.yaml
+kubectl apply -f serving/cpu/triton-servicemonitor.yaml
+kubectl apply -f serving/cpu/analysis-template.yaml
+
+# 2. Enable Argo Rollouts controller metrics for the M4 dashboard.
+kubectl apply -f monitoring/argo-rollouts-metrics.yaml
+kubectl apply -f monitoring/dashboards/k8s-configmap-m4.yaml
+
+# 3. Verify stable inference.
+./serving/cpu/query.sh
+
+# 4. Build the placeholder v2 repo and start the canary.
+./serving/cpu/canary/build-canary-placeholder.sh
+kubectl apply -f serving/cpu/canary/rollout-v2.yaml
+
+# 5. Watch the rollout shift traffic 5% -> 25% -> 50% -> 100%.
+# Requires the kubectl argo rollouts plugin:
+#   https://argo-rollouts.readthedocs.io/en/stable/installation/#kubectl-plugin-installation
+kubectl argo rollouts get rollout toxicity-cpu --watch
+
+# Fallback without the plugin:
+kubectl get rollout toxicity-cpu -w
+```
+
+See `serving/cpu/canary/README.md` for the full walkthrough and
+`monitoring/README.md` for the M4 dashboard.
+
 ## Inference contract
 
 The Triton predictor currently takes pre-tokenized input. Once the KServe
@@ -233,14 +272,17 @@ keeping them is to document engineering tradeoffs, not to ratify outputs:
 
 - [0001 — kind for CPU, k3s for GPU](docs/adr/0001-use-kind-for-cpu-and-k3s-for-gpu.md) — **superseded**
 - [0002 — k3s for both clusters](docs/adr/0002-use-k3s-for-both-clusters.md) — current
-- [0003 — RawDeployment + KEDA over Serverless](docs/adr/0003-rawdeployment-and-keda-over-serverless.md) — filed (M3)
+- [0003 — RawDeployment + KEDA over Serverless](docs/adr/0003-rawdeployment-and-keda-over-serverless.md) — filed (M3; amended for M4)
 - [0004 — MLServer for the MLflow handoff on CPU](docs/adr/0004-use-mlserver-for-mlflow-handoff-on-cpu.md) — **superseded by 0005**
 - [0005 — Triton on both CPU and GPU clusters](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md) — filed (M2, supersedes 0004)
 - [0006 — DistilBERT over full BERT](docs/adr/0006-use-distilbert-over-bert.md) — filed (M1)
+- [0007 — Drop true scale-to-zero; keep min one replica](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md) — filed (M3)
+- [0008 — Argo Rollouts owns the CPU predictor](docs/adr/0008-argo-rollouts-canary-with-kserve-rawdeployment.md) — filed (M4)
+- [0009 — Placeholder v2 artifact for M4](docs/adr/0009-placeholder-v2-artifact-for-m4.md) — filed (M4)
 
 Planned ADRs (filed when the corresponding code lands):
 
-- 0007 — Per-architecture TRT engine matrix in CI
+- 0010 — Per-architecture TRT engine matrix in CI
 
 ## Known limitations
 
@@ -272,10 +314,9 @@ Planned ADRs (filed when the corresponding code lands):
   which serves Gateway CRD resources only. Symptom: `Ready=True`,
   `model=Loaded`, but every request through the Gateway returns 404.
   Workaround: each ISVC manifest ships a companion `VirtualService`
-  in the same YAML (see `serving/cpu/inferenceservice-triton.yaml`
-  for the pattern). Long-term fixes worth considering: enabling
-  Istio's Kubernetes Ingress support, flipping KServe to
-  `enableGatewayApi: true`, or wiring Knative back in.
+  in the same YAML (see `serving/gpu/inferenceservice-triton.yaml`
+  for the GPU pattern). The CPU predictor now uses an Argo Rollout with
+  its own VirtualService in `serving/cpu/rollout.yaml`.
 - **PromQL labels need verification** against the actual DCGM exporter version.
   See comments in `serving/gpu/inferenceservice-triton.yaml`.
 - **CPU predictor keeps one replica at idle.** Per [ADR 0007](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md),

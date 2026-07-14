@@ -181,7 +181,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "kube_deployment_status_replicas{deployment=\"toxicity-cpu-predictor\"}",
+              "expr": "sum(kube_replicaset_spec_replicas{replicaset=~\"toxicity-cpu-.*\"})",
               "legendFormat": "replicas",
               "refId": "A"
             }

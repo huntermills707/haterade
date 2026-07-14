@@ -1,0 +1,33 @@
+# KEDA ScaledObject for the Argo Rollouts predictor (M4).
+#
+# Replaces the autoscaler that KServe created from the ISVC annotations in M3.
+# KEDA can scale argoproj.io/v1alpha1 Rollouts directly; the scaleTargetRef
+# points to the Rollout instead of a Deployment.
+#
+# Same signal as M3: Triton inference queue duration per pod. Scales the
+# Rollout 1 -> N -> 1 under load. minReplicas is 1 per ADR 0007.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: toxicity-cpu
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: toxicity-cpu
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 60
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://kube-prometheus-stack-prometheus.observability.svc:9090
+        metricName: nv_inference_queue_duration_us
+        threshold: "50000"
+        query: |
+          avg(rate(nv_inference_queue_duration_us{model="distilbert-toxicity"}[30s]))

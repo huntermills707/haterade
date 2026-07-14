@@ -1,18 +1,19 @@
-# ServiceMonitor so Prometheus scrapes Triton metrics from the Rollout pods.
+# ServiceMonitor so Prometheus scrapes Triton metrics from the canary Rollout.
 #
-# Updated for M4: the predictor is now an Argo Rollout, so the selector matches
-# the Rollout's pod template labels instead of KServe ISVC labels.
+# Mirrors serving/cpu/triton-servicemonitor.yaml but selects the canary Service.
+# Without this, Argo Rollouts AnalysisRuns against canary-specific Prometheus
+# queries have no data and the canary will fail.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: triton-cpu-metrics
+  name: triton-cpu-canary-metrics
   namespace: default
   labels:
     release: kube-prometheus-stack   # matched by kube-prometheus-stack discovery
 spec:
   selector:
     matchLabels:
-      app: toxicity-cpu
+      app: isvc.toxicity-cpu-canary
   namespaceSelector:
     matchNames:
       - default

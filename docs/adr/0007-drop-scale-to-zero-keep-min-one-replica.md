@@ -37,7 +37,13 @@ Drop **true scale-to-zero** from the M3 scope.
 - M3 is redefined as **"Traffic sim + observe autoscaling"**: drive load with
   Locust, watch KEDA scale the predictor up, then watch it scale back down to
   the minimum.
-- Set `minReplicas: 1` on the CPU predictor (`serving/cpu/inferenceservice-triton.yaml`).
+- Set `minReplicas: 1` on the CPU predictor
+  (`serving/cpu/rollout.yaml` / `serving/cpu/scaledobject.yaml`).
+  > **Amendment (2026-07-14):** The CPU predictor is now an Argo Rollout
+  > rather than a KServe ISVC. The replica floor is still `1`; it is
+  > expressed in the Rollout `replicas` default and the KEDA
+  > `minReplicaCount`. The old `serving/cpu/inferenceservice-triton.yaml`
+  > file has been removed. See ADR 0008.
 - Keep `maxReplicas: 3` and the Triton queue-duration KEDA trigger.
 - Keep the 60 s scale-down stabilization window for responsive demos.
 - Leave the GPU predictor at `minReplicas: 1` as well (pending hardware).
@@ -45,6 +51,11 @@ Drop **true scale-to-zero** from the M3 scope.
   scale-from-zero. If scale-from-zero becomes a hard requirement later, the
   correct path is to re-evaluate Serverless mode (Knative), not to bolt a
   second metric onto RawDeployment.
+
+  > **Amendment (2026-07-14):** The `minReplicas: 1` floor also simplifies
+  > M4. It guarantees the stable predictor's pod-level metric exists,
+  > while the canary Rollout uses a separate fixed-size replica set. See
+  > ADR 0008.
 
 ## Consequences
 
@@ -119,8 +130,9 @@ Rejected because:
 
 - ADR 0003 — RawDeployment + KEDA over Serverless (the platform choice that
   this ADR narrows, not reverses).
-- `serving/cpu/inferenceservice-triton.yaml` — CPU predictor manifest with
-  `minReplicas: 1` and KEDA queue-duration trigger.
+- `serving/cpu/rollout.yaml` — CPU predictor Rollout (replaces the
+  removed `serving/cpu/inferenceservice-triton.yaml`).
+- `serving/cpu/scaledobject.yaml` — KEDA ScaledObject with `minReplicaCount: 1`.
 - `traffic/locustfile.py` — Locust load shape used for M3 verification.
 - `monitoring/dashboards/m3-cpu-autoscaling.json` — Grafana dashboard for
   observing autoscaling.

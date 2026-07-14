@@ -1,0 +1,15 @@
+# PVC for the Triton canary model repository (placeholder v2).
+#
+# Same shape as serving/cpu/model-pvc.yaml. RWO is fine because the CPU
+# cluster is single-node k3s; canary and stable pods mount different PVCs.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: triton-cpu-canary-model-repo
+  namespace: default
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path   # k3s default
+  resources:
+    requests:
+      storage: 1Gi

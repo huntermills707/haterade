@@ -1,0 +1,120 @@
+# Canary update for the CPU predictor (M4).
+#
+# Apply this after serving/cpu/rollout.yaml to trigger an Argo Rollouts canary.
+# The only change from the stable spec is the model-repository PVC: this
+# version mounts the placeholder v2 repository built by
+# serving/cpu/canary/build-canary-placeholder.sh.
+#
+# The VirtualService weights will progress 5% -> 25% -> 50% -> 100% canary,
+# running the AnalysisTemplate at each step. To promote manually:
+#   kubectl argo rollouts promote toxicity-cpu
+# To abort:
+#   kubectl argo rollouts abort toxicity-cpu
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: toxicity-cpu
+  namespace: default
+  labels:
+    app: toxicity-cpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toxicity-cpu
+  strategy:
+    canary:
+      stableService: toxicity-cpu-stable
+      canaryService: toxicity-cpu-canary
+      trafficRouting:
+        istio:
+          virtualService:
+            name: toxicity-cpu
+            routes:
+              - primary
+      steps:
+        # Give the canary 3 replicas before exposing traffic. Without this,
+        # a single canary pod would be overwhelmed at 25%/50% weights while
+        # the KEDA-scaled stable set runs 3+ pods.
+        - setCanaryScale:
+            replicas: 3
+        # 5% canary, then Prometheus analysis for 2 minutes.
+        - setWeight: 5
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-cpu-canary
+        # 25% canary.
+        - setWeight: 25
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-cpu-canary
+        # 50% canary.
+        - setWeight: 50
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-cpu-canary
+        # 100% canary.
+        - setWeight: 100
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-cpu-canary
+  template:
+    metadata:
+      labels:
+        app: toxicity-cpu
+        component: predictor
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: kserve-container
+          image: nvcr.io/nvidia/tritonserver:23.05-py3
+          imagePullPolicy: IfNotPresent
+          command: ["tritonserver"]
+          args:
+            - --model-repository=/mnt/models
+            - --http-port=8080
+            - --grpc-port=9000
+            - --metrics-port=8002
+            - --allow-grpc=true
+            - --allow-http=true
+            - --allow-metrics=true
+          resources:
+            requests: { cpu: "1", memory: 2Gi }
+            limits:   { cpu: "2", memory: 4Gi }
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 9000
+              name: grpc
+              protocol: TCP
+            - containerPort: 8002
+              name: metrics
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /v2/health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /v2/health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: model-repo
+              mountPath: /mnt/models
+              readOnly: true
+      volumes:
+        - name: model-repo
+          persistentVolumeClaim:
+            claimName: triton-cpu-canary-model-repo
