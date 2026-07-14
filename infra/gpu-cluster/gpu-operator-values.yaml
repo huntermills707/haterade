@@ -1,0 +1,32 @@
+# NVIDIA GPU Operator Helm values.
+# Key choices (see docs/adr/0001-use-kind-for-cpu-and-k3s-for-gpu.md):
+#
+#   driver.enabled: false
+#     The workstation already has a working driver installed and verified via
+#     nvidia-smi in k3s-install.sh. Letting GPU Operator install the driver via
+#     container adds variability; disable for predictability on a workstation
+#     where the host driver is known good.
+#
+#   toolkit.enabled: false
+#     We install nvidia-container-toolkit on the host and configure k3s
+#     containerd manually in k3s-install.sh. The in-cluster toolkit install is
+#     redundant and can fight the host config.
+#
+#   devicePlugin + dcgmExporter: enabled (defaults)
+#     These are the in-cluster components KServe + KEDA actually need. DCGM
+#     exporter is what KEDA's PromQL query targets for GPU-aware autoscaling.
+#
+#   dcgmExporter.serviceMonitor.enabled: true
+#     Auto-creates a Prometheus ServiceMonitor so kube-prometheus-stack scrapes
+#     DCGM metrics without extra YAML from us.
+
+driver:
+  enabled: false
+toolkit:
+  enabled: false
+dcgmExporter:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+nfd:
+  enabled: true

@@ -1,0 +1,45 @@
+name: "distilbert-toxicity"
+backend: "tensorrt"
+# Implicit batch: Triton inserts the batch dimension (up to max_batch_size) in
+# front of the dims declared below. The plan was built with matching
+# optimization profiles 1..32 x 128 — see build-engine.sh.
+max_batch_size: 32
+
+input [
+  {
+    name: "input_ids"
+    data_type: TYPE_INT64
+    dims: [ 128 ]
+  },
+  {
+    name: "attention_mask"
+    data_type: TYPE_INT64
+    dims: [ 128 ]
+  }
+]
+
+output [
+  {
+    name: "logits"
+    data_type: TYPE_FP32
+    dims: [ 6 ]
+  }
+]
+
+# Coalesce individual requests into batches for throughput. The queue delay cap
+# bounds latency when traffic is sparse. This is the metric KEDA scales on
+# (nv_inference_queue_duration_us) — see inferenceservice-triton.yaml.
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16, 32 ]
+  max_queue_delay_microseconds: 50000
+  preserve_ordering: true
+}
+
+instance_group [
+  {
+    name: "triton-tensorrt"
+    kind: KIND_GPU
+    count: 1
+    gpus: [ 0 ]
+  }
+]

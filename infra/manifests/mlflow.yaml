@@ -1,0 +1,65 @@
+# MLflow tracking server with MinIO S3 artifact backend.
+# Applied by install-platform-stack.sh.
+#
+# Backend store: SQLite on a PVC. Fine for a single-pod demo. For HA or
+# multi-pod scaling, swap for Postgres (chart subchart or external).
+#
+# Artifact store: MinIO S3 bucket created by the minio helm release. The
+# bucket name 'mlflow' must match the value passed to MinIO at install time
+# (see install-platform-stack.sh).
+#
+# IMPORTANT: the upstream `ghcr.io/mlflow/mlflow:*` image ships WITHOUT
+# boto3, so the in-server artifact proxy (enabled by --serve-artifacts)
+# 500s on every PUT to /api/2.0/mlflow-artifacts/* because the S3 client
+# can't be imported. We work around this by wrapping the command in
+# `pip install --quiet boto3 && exec mlflow …`. Adds ~3 s to cold start.
+# Long-term: bake a custom image (ADR candidate) once a private registry
+# is in place. Tracked in README "Known limitations".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: mlflow
+  labels: {app: mlflow}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mlflow}}
+  template:
+    metadata: {labels: {app: mlflow}}
+    spec:
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v2.20.3
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              pip install --quiet --no-cache-dir boto3 && \
+              exec mlflow server \
+                --host=0.0.0.0 \
+                --port=5000 \
+                --backend-store-uri=sqlite:////mlflow/mlflow.db \
+                --artifacts-destination=s3://mlflow/ \
+                --serve-artifacts
+          env:
+            - {name: MLFLOW_S3_ENDPOINT_URL,  value: "http://minio.mlflow.svc.cluster.local:9000"}
+            - {name: AWS_ACCESS_KEY_ID,       value: "minioadmin"}
+            - {name: AWS_SECRET_ACCESS_KEY,   value: "minioadmin"}
+          ports: [{containerPort: 5000}]
+          volumeMounts: [{name: mlflow-db, mountPath: /mlflow}]
+      volumes:
+        - name: mlflow-db
+          persistentVolumeClaim: {claimName: mlflow-db}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: mlflow-db, namespace: mlflow}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 2Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mlflow, namespace: mlflow}
+spec:
+  selector: {app: mlflow}
+  ports: [{port: 5000, targetPort: 5000}]

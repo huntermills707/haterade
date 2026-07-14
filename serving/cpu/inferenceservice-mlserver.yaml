@@ -1,0 +1,104 @@
+# KServe InferenceService: DistilBERT toxicity classifier on MLServer + MLflow.
+#
+# Topology: MLflow artifact in MinIO → storage-initializer pulls to /mnt/models
+#           → MLServer (mlserver-mlflow runtime) loads via pyfunc → KServe V2.
+#
+# Mirrors serving/gpu/inferenceservice-triton.yaml in shape so the two can
+# be reasoned about side-by-side. Differences:
+#   - Runtime: kserve-mlserver (vs nvcr.io/nvidia/tritonserver)
+#   - Storage: S3 pull from MinIO at deploy time (vs pre-baked PVC)
+#   - No GPU resources, no GPU node selector
+#   - Autoscaling deferred to M3 (M2 ships fixed at 1 replica)
+#
+# Pre-tokenized input contract (same as GPU):
+#   POST /v2/models/toxicity-cpu/infer
+#   inputs: [{name: input_ids, [1,128] INT64}, {name: attention_mask, [1,128] INT64}]
+#   outputs: 6 named FP32 logits (one per label)
+#
+# Labels order (DO NOT reorder — M1 training + serving/gpu both depend on this):
+#   toxic, severe_toxic, obscene, threat, insult, identity_hate
+# Apply sigmoid client-side (multi-label, not multi-class).
+#
+# The storage.path pins to the M1 verified run_id (auroc_macro 0.9795).
+# M5 (retrain + automated promotion) will produce a new run_id and we'll
+# roll it via Argo Rollouts canary, not by editing this manifest.
+#
+# Companion VirtualService: see the second document at the bottom of this
+# file. KServe v0.19 RawDeployment mode generates a K8s networking.k8s.io/
+# Ingress with `ingressClassName: istio`, but the istio-ingress proxy we
+# installed (helm `istio/gateway`) only serves Gateway CRD resources, not
+# K8s Ingresses. Without the bundled VS, the ISVC reaches Ready=True but
+# every request through the Gateway returns 404. Tracked in the root
+# README "Known limitations" — long-term fix is either enabling Istio's
+# K8s Ingress support or flipping KServe to `enableGatewayApi: true`.
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: toxicity-cpu
+  namespace: default
+  annotations:
+    # Belt-and-suspenders: the cluster-wide inferenceservice-config already
+    # sets this (see infra/install-platform-stack.sh), but pinning on the
+    # ISVC makes it portable to a cluster where the default is different.
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    # M2: fixed 1 replica. Scale-to-zero + KEDA on request concurrency
+    # is M3's scope.
+    minReplicas: 1
+    maxReplicas: 1
+    model:
+      modelFormat:
+        name: mlflow
+        version: "2"
+      runtime: kserve-mlserver
+      protocolVersion: v2
+      storage:
+        # storage-config Secret in this namespace, JSON blob keyed 'localMinio'.
+        # Created by infra/manifests/kserve-storage-secret.yaml.
+        key: localMinio
+        # Path is bucket-relative. Bucket 'mlflow' is set in the Secret.
+        # MLflow artifact URI breakdown:
+        #   s3://<bucket>/<experiment_id>/<run_id>/artifacts/<artifact_path>
+        # = s3://mlflow/1/4927d59563184da6a5861765de043394/artifacts/model
+        #
+        # NOTE: run_id points at the fourth M1 run (2026-07-13), logged
+        # via mlflow.pyfunc.log_model with ToxicityV2Wrapper + code_path
+        # + a wrapper that handles mlserver's InferenceRequest shape.
+        # Earlier runs:
+        #   18c785f7036143869547d97fc2476c40  mlflow.pytorch — V2 incompatible
+        #   0a920b119ca64dd7905d879ef6209e5d  pyfunc wrapper, no code_path
+        #   8bb3a939c121427bae0442e48d2e8e31  pyfunc wrapper, DataFrame-only
+        # See toxicity_wrapper.py for the full story.
+        path: 1/4927d59563184da6a5861765de043394/artifacts/model
+      resources:
+        # DistilBERT needs ~1.2 GiB resident once loaded; 2 GiB is comfortable
+        # headroom for the pyfunc wrapper + transient tensors.
+        requests: {cpu: "1",   memory: 2Gi}
+        limits:   {cpu: "2",   memory: 4Gi}
+---
+# VirtualService that makes toxicity-cpu reachable through the Istio
+# Gateway. Bundled here so `kubectl apply -f` is one operation and the
+# ISVC + its routing arrive together.
+#
+# If you rename the ISVC or move it to another namespace, update the
+# `hosts:` and `destination.host` accordingly:
+#   host:        <isvc-name>-<namespace>.example.com
+#   destination: <isvc-name>-predictor.<namespace>.svc.cluster.local
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: toxicity-cpu
+  namespace: default
+spec:
+  gateways:
+    - kserve/kserve-ingress-gateway   # created by infra/manifests/kserve-ingress-gateway.yaml
+  hosts:
+    - toxicity-cpu-default.example.com
+  http:
+    - route:
+        - destination:
+            host: toxicity-cpu-predictor.default.svc.cluster.local
+            port:
+              number: 80

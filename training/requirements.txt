@@ -1,0 +1,22 @@
+# M1 — Jigsaw DistilBERT training.
+#
+# CPU-only build of PyTorch. Smaller install than the CUDA wheel and
+# plenty for short DistilBERT runs on the laptop.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch==2.5.1
+transformers==4.46.3
+accelerate==1.2.1
+datasets==3.1.0
+scikit-learn==1.5.2
+pandas==2.1.4
+numpy==1.26.4
+
+# Tracking + dataset download
+mlflow==2.20.3
+kagglehub==0.4.1
+
+# Pinning note (README.md "Known limitations"):
+# chart-side versions are placeholders; this client-side pin matches the
+# in-cluster MLflow image (ghcr.io/mlflow/mlflow:v2.20.3) so client/server
+# REST API versions agree.

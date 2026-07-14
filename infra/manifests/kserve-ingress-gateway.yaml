@@ -1,0 +1,40 @@
+# Istio Gateway for KServe InferenceServices (RawDeployment mode).
+#
+# KServe's `inferenceservice-config` (key: `ingress.kserveIngressGateway`)
+# points at `kserve/kserve-ingress-gateway` — i.e. it expects a Gateway
+# resource with exactly this name in the `kserve` namespace. Without it,
+# KServe still reconciles Deployments/Services for an ISVC but the
+# VirtualService it creates has no Gateway to attach to → 404 at the
+# ingress proxy.
+#
+# The selector matches the istio-ingress proxy installed by
+# `helm install istio-ingress istio/gateway -n istio-ingress`
+# (see infra/install-platform-stack.sh). That proxy's ServiceLB
+# LoadBalancer allocates an external IP on the LAN:
+#   kubectl -n istio-ingress get svc istio-ingress \
+#     -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+#
+# Host routing: an ISVC named <name> in <ns> gets a VirtualService with
+# host <name>-<ns>.example.com (KServe default ingressDomain). Two ways
+# to reach it from a host:
+#   1. curl -H "Host: <name>-<ns>.example.com" http://<extIP>/...
+#   2. echo "<extIP> <name>-<ns>.example.com" | sudo tee -a /etc/hosts
+# To shorten hosts, set ingress.ingressDomain in inferenceservice-config
+# (e.g. "local" → <name>-<ns>.local).
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: kserve-ingress-gateway
+  namespace: kserve
+  labels: {app: kserve-ingress, component: istio-gateway}
+spec:
+  selector:
+    # Matches the istio-ingress proxy pods (Deployment in istio-ingress ns).
+    istio: ingress
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*/*"

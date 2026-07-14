@@ -1,0 +1,16 @@
+# PVC for the Triton model repository (config.pbtxt + version/ plan files).
+#
+# RWO is intentional and sufficient: the GPU cluster is a single-node k3s, so
+# all predictor pods land on the same node and can share the RWO mount. If this
+# ever moves to a multi-node GPU cluster, switch to RWX (Longhorn / NFS).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: triton-model-repo
+  namespace: default
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path   # k3s default
+  resources:
+    requests:
+      storage: 1Gi
