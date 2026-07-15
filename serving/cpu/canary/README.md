@@ -1,17 +1,25 @@
-# M4 — Argo Rollouts canary for the CPU predictor
+# M4/M5 — Argo Rollouts canary for the CPU predictor
 
-This directory contains the canary artifacts for milestone M4. The CPU
-predictor is now an Argo Rollout (see `serving/cpu/rollout.yaml`), so Argo
-Rollouts can shift Istio traffic between stable (v1) and canary (placeholder
-v2) using Prometheus analysis gates.
+This directory contains the canary artifacts for milestones M4 and M5. The CPU
+predictor is an Argo Rollout (see `serving/cpu/rollout.yaml`), so Argo
+Rollouts can shift Istio traffic between stable (v1) and canary (v2) using
+Prometheus analysis gates.
+
+In **M4** the v2 artifact was a placeholder — the same v1 ONNX under Triton
+version `2`. In **M5** the canary is built from a real retrained MLflow run
+and promoted automatically.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `model-pvc.yaml` | PVC for the placeholder v2 model repository. |
-| `build-canary-placeholder.sh` | Copies the verified v1 ONNX into the v2 PVC and bumps the Triton version label to 2. |
-| `rollout-v2.yaml` | Rollout update that mounts the v2 PVC and triggers the canary. |
+| `model-pvc.yaml` | PVC for the canary model repository. |
+| `build-canary-placeholder.sh` | **M4 only.** Copies the verified v1 ONNX into the v2 PVC and bumps the Triton version label to 2. |
+| `build-canary-from-run.sh` | **M5.** Builds a real v2 repository from an MLflow run. |
+| `promote-and-canary.sh` | **M5.** Validates a run, builds the canary, deploys it, and optionally promotes. |
+| `rollback.sh` | Reverts to the stable v1 rollout. |
+| `rollout-v2.yaml` | Rollout update that mounts the canary PVC and triggers the canary. |
+| `servicemonitor.yaml` | ServiceMonitor so Prometheus scrapes canary pods. |
 
 The stable Rollout, Services, VirtualService, KEDA ScaledObject, and
 AnalysisTemplate live in `serving/cpu/`:
@@ -21,7 +29,50 @@ AnalysisTemplate live in `serving/cpu/`:
 - `serving/cpu/triton-servicemonitor.yaml`
 - `serving/cpu/analysis-template.yaml`
 
-## Quickstart
+## Quickstart (M5 — real retrain + promotion)
+
+1. **Retrain with the promotion gate enabled:**
+
+   ```bash
+   cd training
+   MLFLOW_REGISTER_MODEL=true MLFLOW_PROMOTE_MODEL=true \
+     .venv/bin/python -m training.train
+   ```
+
+   Note the `run_id` printed at the end.
+
+2. **Run the automated canary promotion:**
+
+   ```bash
+   ./serving/cpu/canary/promote-and-canary.sh <run-id> --promote
+   ```
+
+   This validates the run, builds the canary v2 repository, applies
+   `rollout-v2.yaml`, waits for the Rollout to become `Healthy`, and then
+   promotes the canary to stable and marks the MLflow version as `Production`.
+
+3. **If metrics look bad, roll back:**
+
+   ```bash
+   ./serving/cpu/rollback.sh
+   ```
+
+4. **Observe:**
+
+   ```bash
+   # Watch VirtualService weights mutate
+   kubectl get virtualservice toxicity-cpu -o yaml | grep -A 20 route
+
+   # Watch replicas
+   watch kubectl get pods -l app=toxicity-cpu
+
+   # Grafana (M4/M5 dashboard)
+   kubectl -n observability port-forward svc/kube-prometheus-stack-grafana 3000:80
+   ```
+
+## Quickstart (M4 — placeholder v2)
+
+The placeholder v2 workflow is kept for reproducing the original M4 demo.
 
 1. **Deploy the stable predictor** (if not already deployed):
 
@@ -89,22 +140,9 @@ AnalysisTemplate live in `serving/cpu/`:
 
    Aborting reverts traffic to 100% stable.
 
-8. **Observe**:
-
-   ```bash
-   # Watch VirtualService weights mutate
-   kubectl get virtualservice toxicity-cpu -o yaml | grep -A 20 route
-
-   # Watch replicas
-   watch kubectl get pods -l app=toxicity-cpu
-
-   # Grafana (M4 dashboard)
-   kubectl -n observability port-forward svc/kube-prometheus-stack-grafana 3000:80
-   ```
-
 ## How the placeholder v2 works
 
-M5 will produce a genuinely retrained model. For M4, the "v2" artifact is the
+M5 produces a genuinely retrained model. For M4, the "v2" artifact is the
 same ONNX file as v1, placed under Triton version `2` in a separate PVC. The
 inference contract is unchanged, but Triton metrics carry a `version="2"`
 label so the AnalysisTemplate can measure canary-specific success rate and
@@ -114,11 +152,14 @@ latency.
 
 Once M5 produces a new MLflow run:
 
-1. Export the new ONNX via `serving/cpu/build-model-repo.sh` using the new
-   `MLFLOW_RUN_ID`.
-2. Copy the resulting model repo into `triton-cpu-canary-model-repo` instead
-   of the placeholder.
-3. Apply `serving/cpu/canary/rollout-v2.yaml` to run the canary again.
+1. Run `serving/cpu/canary/build-canary-from-run.sh <run-id>` to build the
+   canary repository directly from the retrained artifacts.
+2. Apply `serving/cpu/canary/rollout-v2.yaml` to run the canary.
+3. (Optional) Run `serving/cpu/canary/promote-and-canary.sh <run-id>
+   --promote` to validate, build, deploy, and promote automatically.
+
+The M4 placeholder script is kept for historical reproduction but is no
+longer the path to v2.
 
 ## Design note
 

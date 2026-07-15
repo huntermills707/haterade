@@ -3,6 +3,11 @@
 Date: 2026-07-14
 Status: Accepted
 
+> **Amendment (2026-07-14):** The decision block originally stated
+> "Option 3: Argo Rollouts owns the CPU predictor." The ADR only considered
+> two options (A and B); the chosen approach is Option B. The wording is
+> corrected below.
+
 ## Context
 
 Milestone M4 requires canary delivery with Prometheus analysis gates:
@@ -23,7 +28,7 @@ Two implementation options were considered:
 
 ## Decision
 
-Use **Option 3: Argo Rollouts owns the CPU predictor**.
+Use **Option B: Argo Rollouts owns the CPU predictor**.
 
 The `toxicity-cpu` InferenceService is replaced by:
 

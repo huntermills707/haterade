@@ -1,4 +1,4 @@
-"""MLflow client wiring.
+"""MLflow client wiring + M5 promotion helpers.
 
 The in-cluster MLflow server is started with `--serve-artifacts`, so the
 client talks only to MLFLOW_TRACKING_URI and MLflow proxies artifacts to
@@ -30,8 +30,12 @@ def maybe_register_model(
 ) -> str | None:
     """Register the model under cfg.registered_model_name if
     MLFLOW_REGISTER_MODEL=true. Returns the model name (if registered)
-    or None. Existing registered model + version alias is left to the
-    promotion step (M5)."""
+    or None.
+
+    The M5 promotion gate (training.src.promotion.stage_candidate) decides
+    whether the new version is good enough to move to cfg.candidate_stage;
+    this helper only creates the registry entry so the gate can transition
+    it after the AUROC check."""
     if not cfg.register_model:
         return None
     client = MlflowClient(tracking_uri=cfg.tracking_uri)
@@ -40,12 +44,66 @@ def maybe_register_model(
     except mlflow.exceptions.MlflowException:
         # Already exists — fine.
         pass
-    result = client.create_model_version(
+    version = client.create_model_version(
         name=cfg.registered_model_name,
         source=model_uri,
         run_id=run_id,
     )
-    return result.name
+    return version.name
+
+
+def get_production_version_info(
+    cfg: Config,
+) -> tuple[str | None, float | None]:
+    """Return (run_id, auroc_macro) of the current Production model version.
+
+    Returns (None, None) if no Production version exists. The caller decides
+    whether to fall back to a configured threshold or fail open."""
+    client = MlflowClient(tracking_uri=cfg.tracking_uri)
+    try:
+        versions = client.get_latest_versions(
+            cfg.registered_model_name, stages=[cfg.production_stage]
+        )
+    except mlflow.exceptions.MlflowException:
+        return None, None
+    if not versions:
+        return None, None
+    prod = versions[0]
+    run_id = prod.run_id
+    run = client.get_run(run_id)
+    auroc = run.data.metrics.get("auroc_macro")
+    return run_id, auroc
+
+
+def resolve_production_auroc_threshold(cfg: Config) -> float:
+    """Return the AUROC threshold a candidate must beat.
+
+    If cfg.production_auroc_threshold is explicitly set (> 0), use it.
+    Otherwise use the current Production version's auroc_macro. If there is
+    no Production version yet, return 0.0 (anything passes)."""
+    if cfg.production_auroc_threshold > 0:
+        return cfg.production_auroc_threshold
+    _, prod_auroc = get_production_version_info(cfg)
+    return prod_auroc if prod_auroc is not None else 0.0
+
+
+def transition_to_production(cfg: Config, run_id: str) -> None:
+    """Transition the model version for run_id to Production stage."""
+    client = MlflowClient(tracking_uri=cfg.tracking_uri)
+    versions = client.search_model_versions(
+        f"name='{cfg.registered_model_name}' and run_id='{run_id}'"
+    )
+    if not versions:
+        raise RuntimeError(
+            f"No registered model version found for run {run_id}"
+        )
+    version = versions[0]
+    client.transition_model_version_stage(
+        name=cfg.registered_model_name,
+        version=version.version,
+        stage=cfg.production_stage,
+        archive_existing_versions=True,
+    )
 
 
 def log_training_summary(

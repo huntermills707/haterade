@@ -120,7 +120,7 @@ verification is in progress.
 | M2 | Serve v1 via KServe | **Verified on CPU** (Triton + ONNX backend; ISVC `toxicity-cpu` reaches Ready, V2 inference through Istio Gateway works end-to-end). GPU scaffolded (Triton + TRT); GPU cluster pending hardware. See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md). |
 | M3 | Traffic sim + observe autoscaling | **Verified on CPU** — Locust `traffic/` drove load through the Istio gateway; KEDA scaled `toxicity-cpu` from 1 → 3 replicas on Triton queue-duration and scaled back to 1 after traffic stopped. True scale-to-zero intentionally dropped; see [ADR 0007](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md). Grafana M3 dashboard deployed. GPU side pending hardware. |
 | M4 | Argo Rollouts canary with Prometheus analysis | **Verified on CPU** — placeholder v2 canary ran end-to-end through 5% → 25% → 50% → 100% with `setCanaryScale: 3`, all Prometheus analysis gates passed, and traffic reverted to 100% stable after reset. Grafana M4 dashboard deployed. GPU side pending hardware. See [ADR 0008](docs/adr/0008-argo-rollouts-canary-with-kserve-rawdeployment.md) and [ADR 0009](docs/adr/0009-placeholder-v2-artifact-for-m4.md). |
-| M5 | v2 retrain + automated promotion | Not started |
+| M5 | v2 retrain + automated promotion | **Verified on CPU** — retrained model passed the AUROC gate, was staged in MLflow, built into a canary v2 repository, and promoted through the Argo Rollouts canary. GPU side pending hardware. See [ADR 0010](docs/adr/0010-automated-v2-retrain-and-promotion.md). |
 
 Stretch goals (one-line each, in `docs/adr/` as they become decisions):
 
@@ -245,6 +245,32 @@ kubectl get rollout toxicity-cpu -w
 See `serving/cpu/canary/README.md` for the full walkthrough and
 `monitoring/README.md` for the M4 dashboard.
 
+## M5 — Automated v2 retrain and promotion
+
+The M5 flow closes the loop from a new training run to a promoted model:
+
+```bash
+# 1. Retrain with the promotion gate enabled.
+#    Requires MLflow port-forward and Kaggle token.
+cd training
+MLFLOW_REGISTER_MODEL=true MLFLOW_PROMOTE_MODEL=true \
+  .venv/bin/python -m training.train
+
+# 2. Note the new run_id from the output.
+
+# 3. Validate, build canary v2, deploy, and optionally promote.
+./serving/cpu/canary/promote-and-canary.sh <run-id> --promote
+```
+
+If the canary fails, roll back to stable v1:
+
+```bash
+./serving/cpu/rollback.sh
+```
+
+See [ADR 0010](docs/adr/0010-automated-v2-retrain-and-promotion.md) for the
+design and `serving/cpu/canary/README.md` for details on the canary step.
+
 ## Inference contract
 
 The Triton predictor currently takes pre-tokenized input. Once the KServe
@@ -278,7 +304,8 @@ keeping them is to document engineering tradeoffs, not to ratify outputs:
 - [0006 — DistilBERT over full BERT](docs/adr/0006-use-distilbert-over-bert.md) — filed (M1)
 - [0007 — Drop true scale-to-zero; keep min one replica](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md) — filed (M3)
 - [0008 — Argo Rollouts owns the CPU predictor](docs/adr/0008-argo-rollouts-canary-with-kserve-rawdeployment.md) — filed (M4)
-- [0009 — Placeholder v2 artifact for M4](docs/adr/0009-placeholder-v2-artifact-for-m4.md) — filed (M4)
+- [0009 — Placeholder v2 artifact for M4](docs/adr/0009-placeholder-v2-artifact-for-m4.md) — filed (M4; amended for M5)
+- [0010 — Automated v2 retrain and promotion](docs/adr/0010-automated-v2-retrain-and-promotion.md) — filed (M5)
 
 Planned ADRs (filed when the corresponding code lands):
 

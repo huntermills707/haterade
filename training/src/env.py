@@ -43,6 +43,10 @@ class Config:
     experiment_name: str
     register_model: bool
     registered_model_name: str
+    promote_model: bool
+    production_auroc_threshold: float
+    candidate_stage: str
+    production_stage: str
 
     # Training
     train_sample_limit: int
@@ -125,6 +129,12 @@ def from_env() -> Config:
         registered_model_name=os.environ.get(
             "MLFLOW_REGISTERED_MODEL_NAME", "distilbert-toxicity"
         ),
+        promote_model=_bool(os.environ.get("MLFLOW_PROMOTE_MODEL"), False),
+        production_auroc_threshold=_float(
+            os.environ.get("MLFLOW_PRODUCTION_AUROC_THRESHOLD"), 0.0
+        ),
+        candidate_stage=os.environ.get("MLFLOW_CANDIDATE_STAGE", "Staging"),
+        production_stage=os.environ.get("MLFLOW_PRODUCTION_STAGE", "Production"),
         train_sample_limit=_int(os.environ.get("TRAIN_SAMPLE_LIMIT"), 2000),
         eval_sample_limit=_int(os.environ.get("EVAL_SAMPLE_LIMIT"), 200),
         max_length=_int(os.environ.get("MAX_LENGTH"), 128),

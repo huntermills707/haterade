@@ -1,4 +1,5 @@
-"""M1 entrypoint: train DistilBERT on Jigsaw, log to MLflow.
+"""M5 entrypoint: train DistilBERT on Jigsaw, log to MLflow, and optionally
+stage the best model for the canary promotion gate.
 
 Usage:
     # 1. forward the in-cluster MLflow to localhost
@@ -14,6 +15,10 @@ Usage:
 
 Defaults (training/.env.example) target short CPU runs: 5k train rows,
 1k eval rows, 1 epoch. Tune via env vars (env wins over .env).
+
+Set MLFLOW_PROMOTE_MODEL=true to enable the M5 gate: the run is registered,
+its eval auroc_macro is compared against the current Production threshold,
+and passing runs are transitioned to Staging for the canary deploy.
 """
 from __future__ import annotations
 
@@ -35,7 +40,9 @@ from training.src.tracking import (
     init_tracking,
     maybe_register_model,
     log_training_summary,
+    resolve_production_auroc_threshold,
 )
+from training.src.promotion import stage_candidate
 
 
 def seed_everything(seed: int) -> None:
@@ -62,6 +69,8 @@ def main() -> int:
     print(f"  max_length       = {cfg.max_length}")
     print(f"  model            = {cfg.model_name}")
     print(f"  register_model   = {cfg.register_model}")
+    print(f"  promote_model    = {cfg.promote_model}")
+    print(f"  prod_threshold   = {cfg.production_auroc_threshold or 'auto'}")
 
     load_kaggle_token(cfg)
     print(f"  kaggle token     = loaded ({cfg.kaggle_token_file})")
@@ -190,6 +199,21 @@ def main() -> int:
         # Belt + suspenders: client-side create_model_version in case the
         # auto-register above didn't fire (it's a no-op when off).
         maybe_register_model(cfg, f"runs:/{run_id}/model", run_id)
+
+        if cfg.promote_model:
+            print(f"\n[M5] Promotion gate")
+            threshold = resolve_production_auroc_threshold(cfg)
+            auroc = cleaned.get("auroc_macro")
+            print(f"  candidate auroc_macro = {auroc:.4f}")
+            print(f"  production threshold  = {threshold:.4f}")
+            if auroc is None or auroc < threshold:
+                print("  FAILED: candidate does not meet the production threshold")
+                mlflow.set_tag("promotion", "failed")
+                raise SystemExit(1)
+            stage_candidate(run_id)
+            mlflow.set_tag("milestone", "M5")
+            mlflow.set_tag("promotion", "staged")
+            print("  candidate staged for canary deploy")
 
     print(f"\n== done ==")
     print(f"  mlflow run:   {cfg.tracking_uri}/#/experiments/"

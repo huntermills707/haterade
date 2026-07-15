@@ -3,6 +3,12 @@
 Date: 2026-07-14
 Status: Accepted
 
+> **Amendment (2026-07-14):** M5 supersedes the placeholder v2 workflow.
+> The placeholder script remains in the repo for historical M4 reproduction,
+> but the production path to a real v2 is now
+> `serving/cpu/canary/build-canary-from-run.sh` driven by a retrained MLflow
+> run. See ADR 0010.
+
 ## Context
 
 Milestone M4 is about canary delivery mechanics, not about model
@@ -61,11 +67,14 @@ including version-filtered Prometheus analysis.
 
 When M5 produces a new MLflow run:
 
-1. Run `serving/cpu/build-model-repo.sh` with the new `MLFLOW_RUN_ID`.
-2. Copy the resulting model repo into PVC
-   `triton-cpu-canary-model-repo` instead of running the placeholder
-   script.
-3. Apply `serving/cpu/canary/rollout-v2.yaml` to run the canary again.
+1. Run `serving/cpu/canary/build-canary-from-run.sh <new-run-id>` to build
+   the canary repository directly from the retrained artifacts.
+2. Apply `serving/cpu/canary/rollout-v2.yaml` to run the canary.
+3. (Optional) Use `serving/cpu/canary/promote-and-canary.sh <new-run-id>
+   --promote` to validate, build, deploy, and promote automatically.
+
+The M4 placeholder script (`build-canary-placeholder.sh`) is kept for
+reproducing the original M4 verification but is no longer the path to v2.
 
 ## References
 

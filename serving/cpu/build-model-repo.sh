@@ -32,14 +32,25 @@ echo "==> Downloading HF model from MLflow run $MLFLOW_RUN_ID"
   --artifact-uri "runs:/${MLFLOW_RUN_ID}/model" \
   --dst-path "$WORK_DIR/mlflow-model"
 
-# The pyfunc artifact stores the HF model under artifacts/model/.
+# Older M2 runs logged a pyfunc artifact whose HF weights live under
+# model/artifacts/model. Newer M5 runs log the HF directory directly under
+# the artifact path "model". Support both layouts.
+if [ -d "$WORK_DIR/mlflow-model/model/artifacts/model" ]; then
+  HF_MODEL_DIR="$WORK_DIR/mlflow-model/model/artifacts/model"
+elif [ -d "$WORK_DIR/mlflow-model/model" ]; then
+  HF_MODEL_DIR="$WORK_DIR/mlflow-model/model"
+else
+  echo "ERROR: could not locate downloaded model artifacts in $WORK_DIR/mlflow-model"
+  find "$WORK_DIR/mlflow-model" -type f | sed 's/^/  /'
+  exit 1
+fi
+
 # The tokenizer is logged as a separate artifact.
 echo "==> Downloading tokenizer from MLflow"
 "$VENV" -m mlflow artifacts download \
   --artifact-uri "runs:/${MLFLOW_RUN_ID}/tokenizer" \
   --dst-path "$WORK_DIR/mlflow-tokenizer"
 
-HF_MODEL_DIR="$WORK_DIR/mlflow-model/model/artifacts/model"
 cp "$WORK_DIR"/mlflow-tokenizer/tokenizer/* "$HF_MODEL_DIR/"
 
 echo "==> Exporting ONNX (seq_len=$SEQ_LEN, labels=$NUM_LABELS)"
