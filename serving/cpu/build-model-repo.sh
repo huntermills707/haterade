@@ -14,6 +14,8 @@
 #   MLFLOW_RUN_ID=4927d59563184da6a5861765de043394 ./serving/cpu/build-model-repo.sh
 set -euo pipefail
 
+export PATH="${HOME}/.local/bin:${PATH}"
+
 MLFLOW_RUN_ID="${MLFLOW_RUN_ID:-4927d59563184da6a5861765de043394}"
 MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-http://127.0.0.1:5000}"
 SEQ_LEN="${SEQ_LEN:-128}"

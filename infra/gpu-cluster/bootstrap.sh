@@ -37,7 +37,7 @@ helm upgrade --install gpu-operator nvidia/gpu-operator -n gpu-operator \
   --values "$SCRIPT_DIR/gpu-operator-values.yaml"
 
 kubectl wait --for=condition=Available deployment/gpu-operator -n gpu-operator --timeout=300s
-kubectl rollout status daemonset/nvidia-device-plugin  -n gpu-operator --timeout=300s
+kubectl rollout status daemonset/nvidia-device-plugin-daemonset -n gpu-operator --timeout=300s
 kubectl rollout status daemonset/gpu-feature-discovery -n gpu-operator --timeout=300s
 kubectl rollout status daemonset/nvidia-dcgm-exporter  -n gpu-operator --timeout=300s
 

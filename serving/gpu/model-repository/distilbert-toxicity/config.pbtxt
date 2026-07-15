@@ -8,12 +8,12 @@ max_batch_size: 32
 input [
   {
     name: "input_ids"
-    data_type: TYPE_INT64
+    data_type: TYPE_INT32
     dims: [ 128 ]
   },
   {
     name: "attention_mask"
-    data_type: TYPE_INT64
+    data_type: TYPE_INT32
     dims: [ 128 ]
   }
 ]
@@ -28,7 +28,7 @@ output [
 
 # Coalesce individual requests into batches for throughput. The queue delay cap
 # bounds latency when traffic is sparse. This is the metric KEDA scales on
-# (nv_inference_queue_duration_us) — see inferenceservice-triton.yaml.
+# (nv_inference_queue_duration_us) — see serving/gpu/scaledobject.yaml.
 dynamic_batching {
   preferred_batch_size: [ 4, 8, 16, 32 ]
   max_queue_delay_microseconds: 50000

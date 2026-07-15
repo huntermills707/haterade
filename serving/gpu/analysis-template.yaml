@@ -1,0 +1,40 @@
+# Prometheus analysis gates for the GPU canary rollout (M4).
+#
+# Same gates as the CPU canary, filtered to Triton version="2" so the analysis
+# evaluates the canary artifact only.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: toxicity-gpu-canary
+  namespace: default
+spec:
+  metrics:
+    - name: success-rate
+      interval: 30s
+      count: 4
+      successCondition: "result[0] > 0.99"
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.observability.svc:9090
+          query: |
+            sum(rate(nv_inference_request_success{model="distilbert-toxicity",version="2"}[1m]))
+            /
+            (
+              sum(rate(nv_inference_request_success{model="distilbert-toxicity",version="2"}[1m]))
+              +
+              sum(rate(nv_inference_request_failure{model="distilbert-toxicity",version="2"}[1m]))
+            )
+
+    - name: queue-latency
+      interval: 30s
+      count: 4
+      successCondition: "result[0] < 300000"
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.observability.svc:9090
+          query: |
+            sum(rate(nv_inference_queue_duration_us{model="distilbert-toxicity",version="2"}[1m]))
+            /
+            sum(rate(nv_inference_request_success{model="distilbert-toxicity",version="2"}[1m]))

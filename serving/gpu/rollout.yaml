@@ -1,0 +1,201 @@
+# Argo Rollout predictor for the GPU cluster (M4/M5).
+#
+# Mirrors the CPU rollout but with GPU resources, the TensorRT model repo, and
+# DCGM-aware KEDA scaling. KServe InferenceService is replaced because Argo
+# Rollouts needs to own the stable/canary Services and Istio VirtualService for
+# traffic splitting.
+#
+# Layout:
+#   - Rollout "toxicity-gpu" manages stable + canary ReplicaSets.
+#   - Service "toxicity-gpu-stable" and "toxicity-gpu-canary" are mutated by
+#     Argo Rollouts to point at active ReplicaSets.
+#   - VirtualService "toxicity-gpu" splits traffic through the KServe gateway.
+#   - KEDA ScaledObject "toxicity-gpu" scales the Rollout on Triton queue depth
+#     + DCGM GPU utilization.
+#   - ServiceMonitor "triton-gpu-metrics" scrapes Triton metrics.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: toxicity-gpu
+  namespace: default
+  labels:
+    app: toxicity-gpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toxicity-gpu
+  strategy:
+    canary:
+      stableService: toxicity-gpu-stable
+      canaryService: toxicity-gpu-canary
+      trafficRouting:
+        istio:
+          virtualService:
+            name: toxicity-gpu
+            routes:
+              - primary
+      steps:
+        # Single-node cluster has only 2 GPUs; use 1 canary replica so stable
+        # + canary (2 pods total) fits on the node.
+        - setCanaryScale:
+            replicas: 1
+        - setWeight: 5
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-gpu-canary
+        - setWeight: 25
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-gpu-canary
+        - setWeight: 50
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-gpu-canary
+        - setWeight: 100
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-gpu-canary
+  template:
+    metadata:
+      labels:
+        app: toxicity-gpu
+        component: predictor
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: kserve-container
+          image: nvcr.io/nvidia/tritonserver:23.05-py3
+          imagePullPolicy: IfNotPresent
+          command: ["tritonserver"]
+          args:
+            - --model-repository=/mnt/models
+            - --http-port=8080
+            - --grpc-port=9000
+            - --metrics-port=8002
+            - --allow-grpc=true
+            - --allow-http=true
+            - --allow-metrics=true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu: 1
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 9000
+              name: grpc
+              protocol: TCP
+            - containerPort: 8002
+              name: metrics
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /v2/health/ready
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v2/health/live
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          volumeMounts:
+            - name: model-repo
+              mountPath: /mnt/models
+              readOnly: true
+      volumes:
+        - name: model-repo
+          persistentVolumeClaim:
+            claimName: triton-model-repo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toxicity-gpu-stable
+  namespace: default
+  labels:
+    app: toxicity-gpu
+spec:
+  type: ClusterIP
+  selector:
+    app: toxicity-gpu
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+    - name: grpc
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+    - name: metrics
+      port: 8002
+      targetPort: 8002
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toxicity-gpu-canary
+  namespace: default
+  labels:
+    app: toxicity-gpu
+spec:
+  type: ClusterIP
+  selector:
+    app: toxicity-gpu
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+    - name: grpc
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+    - name: metrics
+      port: 8002
+      targetPort: 8002
+      protocol: TCP
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: toxicity-gpu
+  namespace: default
+spec:
+  gateways:
+    - kserve/kserve-ingress-gateway
+  hosts:
+    - toxicity-gpu-default.example.com
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: toxicity-gpu-stable.default.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: toxicity-gpu-canary.default.svc.cluster.local
+            port:
+              number: 80
+          weight: 0

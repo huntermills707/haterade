@@ -12,6 +12,9 @@ scikit-learn==1.5.2
 pandas==2.1.4
 numpy==1.26.4
 
+# ONNX export (M2 GPU engine build)
+onnx==1.22.0
+
 # Tracking + dataset download
 mlflow==2.20.3
 kagglehub==0.4.1

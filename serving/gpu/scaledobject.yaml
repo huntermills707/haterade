@@ -1,0 +1,46 @@
+# KEDA ScaledObject for the KServe RawDeployment GPU predictor.
+#
+# KServe v0.19 RawDeployment does not accept spec.autoScaling.metrics, so we
+# scale the Deployment it creates directly. Two triggers (OR semantics):
+#   1. Triton inference queue duration per pod — primary batched-server signal.
+#   2. DCGM GPU utilization — catches GPU saturation that queue depth alone
+#      might miss.
+#
+#      NOTE: the namespace label name exported by DCGM varies by GPU Operator
+#      version (e.g. `namespace`, `Namespace`, or `pod_namespace`). Verify the
+#      label name in your DCGM exporter metrics before relying on this trigger.
+#
+# minReplicaCount is 1 per ADR 0007 (keep Triton metrics warm).
+# maxReplicaCount is 2 because this single-node cluster has 2 GPUs.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: toxicity-gpu
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: toxicity-gpu
+  minReplicaCount: 1
+  maxReplicaCount: 2
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 60
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://kube-prometheus-stack-prometheus.observability.svc:9090
+        metricName: nv_inference_queue_duration_us
+        threshold: "50000"
+        query: |
+          avg(rate(nv_inference_queue_duration_us{model="distilbert-toxicity"}[30s]))
+    - type: prometheus
+      metadata:
+        serverAddress: http://kube-prometheus-stack-prometheus.observability.svc:9090
+        metricName: DCGM_FI_DEV_GPU_UTIL
+        threshold: "70"
+        query: |
+          avg_over_time(DCGM_FI_DEV_GPU_UTIL{namespace="default"}[60s])

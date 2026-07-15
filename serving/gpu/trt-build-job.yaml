@@ -1,0 +1,50 @@
+# Build the TensorRT plan inside the same Triton image that serves it.
+#
+# Why not host trtexec? The repo originally targeted Triton 23.05 (TensorRT 8.6),
+# but Ubuntu 24.04 workstations often end up with TensorRT 10/11 host packages,
+# whose engine format is not backward-compatible with Triton 23.05's TensorRT
+# backend. Building inside the serving container guarantees the plan and runtime
+# use the exact same TensorRT version.
+#
+# Usage:
+#   1. Export ONNX to the PVC first (see serving/gpu/export_onnx.py).
+#   2. kubectl apply -f serving/gpu/trt-build-job.yaml
+#   3. kubectl logs -f job/trt-build-distilbert-toxicity
+#
+# NOTE: This file is generated from serving/gpu/lib/trt-job.sh via
+#       ./serving/gpu/render-trt-job.sh. Do not edit manually.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trt-build-distilbert-toxicity
+  namespace: default
+spec:
+  template:
+    metadata:
+      labels:
+        app: trt-build-distilbert-toxicity
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: trt
+          image: nvcr.io/nvidia/tritonserver:23.05-py3
+          command:
+            - /usr/src/tensorrt/bin/trtexec
+            - --onnx=/mnt/models/distilbert-toxicity/onnx/model.onnx
+            - --saveEngine=/mnt/models/distilbert-toxicity/1/model.plan
+            - --fp16
+            - --minShapes=input_ids:1x128,attention_mask:1x128
+            - --optShapes=input_ids:32x128,attention_mask:32x128
+            - --maxShapes=input_ids:32x128,attention_mask:32x128
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: model-repo
+              mountPath: /mnt/models
+      volumes:
+        - name: model-repo
+          persistentVolumeClaim:
+            claimName: triton-model-repo

@@ -1,0 +1,13 @@
+# PVC for the GPU canary (placeholder v2) model repository.
+# Single-node k3s, so RWO is sufficient.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: triton-gpu-canary-model-repo
+  namespace: default
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

@@ -34,6 +34,7 @@ echo "==> Exporting ONNX (dynamic batch axis, seq_len=$SEQ_LEN, source=$MODEL_UR
 python3 "$SCRIPT_DIR/export_onnx.py" \
   --model-uri "$MODEL_URI" \
   --seq-len "$SEQ_LEN" \
+  --int32-inputs \
   --out "$WORK_DIR/model.onnx"
 
 echo "==> Baking TensorRT plan (fp16, batch 1..${MAX_BATCH} x $SEQ_LEN)"

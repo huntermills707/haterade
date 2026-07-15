@@ -25,3 +25,8 @@ training/data/
 *.pt
 *.bin
 *.safetensors
+
+# Model binaries (built from source, not versioned)
+*.onnx
+*.plan
+model-repo/

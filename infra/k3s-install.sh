@@ -105,12 +105,27 @@ export KUBECONFIG="$KUBECONFIG_PATH"
 # ----------------------------------------------------------------------------
 # Configure k3s containerd for the NVIDIA runtime. Must run AFTER k3s install
 # because containerd's config.toml is generated on first k3s start.
+#
+# k3s v1.34 generates a version=3 config.toml that imports drop-ins from
+# config-v3.toml.d/*.toml. We register the nvidia runtime AND set it as the
+# default so GPU pods (and the device plugin's allocations) use
+# nvidia-container-runtime instead of runc. nvidia-container-runtime safely
+# falls back to runc for containers that request no GPU.
 # ----------------------------------------------------------------------------
 if [ "$WITH_GPU" = "true" ]; then
   echo "==> Configuring k3s containerd for NVIDIA runtime"
   nvidia-ctk runtime configure \
     --runtime=containerd \
     --config=/var/lib/rancher/k3s/agent/etc/containerd/config.toml
+
+  K3S_CONTAINERD_DROPIN_DIR="/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d"
+  mkdir -p "$K3S_CONTAINERD_DROPIN_DIR"
+  cat > "$K3S_CONTAINERD_DROPIN_DIR/99-nvidia-default.toml" <<'EOF'
+[plugins."io.containerd.cri.v1.runtime".containerd]
+  default_runtime_name = "nvidia"
+EOF
+  chmod 644 "$K3S_CONTAINERD_DROPIN_DIR/99-nvidia-default.toml"
+
   systemctl restart k3s
 fi
 

@@ -1,0 +1,116 @@
+# M4 canary patch: switch the GPU Rollout to the placeholder v2 model repo.
+# Apply after running build-canary-placeholder.sh.
+#
+# This is a complete Rollout spec (not a strategic merge) because the Kubernetes
+# API server rejects partial Rollout objects. The only difference from
+# serving/gpu/rollout.yaml is the PVC claimName.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: toxicity-gpu
+  namespace: default
+  labels:
+    app: toxicity-gpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toxicity-gpu
+  strategy:
+    canary:
+      stableService: toxicity-gpu-stable
+      canaryService: toxicity-gpu-canary
+      trafficRouting:
+        istio:
+          virtualService:
+            name: toxicity-gpu
+            routes:
+              - primary
+      steps:
+        - setCanaryScale:
+            replicas: 1
+        - setWeight: 5
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-gpu-canary
+        - setWeight: 25
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-gpu-canary
+        - setWeight: 50
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-gpu-canary
+        - setWeight: 100
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: toxicity-gpu-canary
+  template:
+    metadata:
+      labels:
+        app: toxicity-gpu
+        component: predictor
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: kserve-container
+          image: nvcr.io/nvidia/tritonserver:23.05-py3
+          imagePullPolicy: IfNotPresent
+          command: ["tritonserver"]
+          args:
+            - --model-repository=/mnt/models
+            - --http-port=8080
+            - --grpc-port=9000
+            - --metrics-port=8002
+            - --allow-grpc=true
+            - --allow-http=true
+            - --allow-metrics=true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu: 1
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 9000
+              name: grpc
+              protocol: TCP
+            - containerPort: 8002
+              name: metrics
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /v2/health/ready
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v2/health/live
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          volumeMounts:
+            - name: model-repo
+              mountPath: /mnt/models
+              readOnly: true
+      volumes:
+        - name: model-repo
+          persistentVolumeClaim:
+            claimName: triton-gpu-canary-model-repo
