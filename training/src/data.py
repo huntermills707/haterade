@@ -66,7 +66,28 @@ def load_jigsaw_split(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
     if cfg.train_sample_limit > 0 and len(train_df) > cfg.train_sample_limit:
         train_df = train_df.head(cfg.train_sample_limit).reset_index(drop=True)
 
+    if cfg.feedback_csv_dir:
+        fb_dir = Path(cfg.feedback_csv_dir)
+        train_df = _append_feedback_csv(train_df, fb_dir / "feedback_train.csv", keep)
+        eval_df = _append_feedback_csv(eval_df, fb_dir / "feedback_test.csv", keep)
+
     return train_df, eval_df
+
+
+def _append_feedback_csv(
+    df: pd.DataFrame, csv_path: Path, keep: list[str]
+) -> pd.DataFrame:
+    """Append user-feedback rows (exported by frontend/export_feedback.py)
+    to a Jigsaw-split DataFrame. No-op when the file does not exist."""
+    if not csv_path.is_file():
+        return df
+    fb = pd.read_csv(csv_path)
+    missing = [c for c in keep if c not in fb.columns]
+    if missing:
+        raise ValueError(f"{csv_path} missing expected columns: {missing}")
+    fb = fb[keep].dropna(subset=["comment_text"])
+    print(f"Appending {len(fb)} feedback rows from {csv_path}")
+    return pd.concat([df, fb], ignore_index=True)
 
 
 def tokenize(

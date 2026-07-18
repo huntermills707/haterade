@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toxicity Classifier</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 90px; padding: .5rem; font-size: 1rem; }
+  button { padding: .5rem 1rem; font-size: 1rem; cursor: pointer; }
+  .row { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+  .row .name { width: 110px; font-size: .9rem; }
+  .bar { height: 14px; background: #c0392b; border-radius: 2px; }
+  .bar-bg { flex: 1; background: #eee; border-radius: 2px; }
+  .score { width: 48px; font-size: .85rem; text-align: right; }
+  #feedback { display: none; margin-top: 1.5rem; border-top: 1px solid #ddd; padding-top: 1rem; }
+  #feedback label { display: inline-block; margin: .2rem 1rem .2rem 0; font-size: .9rem; }
+  #pred-id { font-size: .75rem; color: #888; word-break: break-all; }
+  #msg { margin-top: .5rem; font-size: .9rem; }
+  .err { color: #c0392b; }
+</style>
+</head>
+<body>
+<h1>Toxicity Classifier</h1>
+<textarea id="text" placeholder="Enter text to classify..."></textarea>
+<p><button id="classify">Classify</button></p>
+<div id="msg"></div>
+<div id="results"></div>
+<p id="pred-id"></p>
+
+<div id="feedback">
+  <h3>Disagree? Supply your own labels</h3>
+  <p>Check every label that applies to this text (leave all unchecked if it is not toxic at all):</p>
+  <div id="label-boxes"></div>
+  <p><button id="submit-feedback">Submit feedback</button></p>
+  <div id="fb-msg"></div>
+</div>
+
+<script>
+const LABELS = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"];
+let currentId = null;
+
+const boxes = document.getElementById("label-boxes");
+for (const l of LABELS) {
+  const label = document.createElement("label");
+  label.innerHTML = `<input type="checkbox" value="${l}"> ${l}`;
+  boxes.appendChild(label);
+}
+
+document.getElementById("classify").onclick = async () => {
+  const msg = document.getElementById("msg");
+  msg.textContent = ""; msg.className = "";
+  document.getElementById("results").innerHTML = "";
+  document.getElementById("feedback").style.display = "none";
+  const text = document.getElementById("text").value.trim();
+  if (!text) { msg.textContent = "Enter some text first."; msg.className = "err"; return; }
+  try {
+    const r = await fetch("/api/predict", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text}),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || r.statusText);
+    currentId = body.id;
+    const results = document.getElementById("results");
+    for (const l of LABELS) {
+      const p = body.scores[l];
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `<span class="name">${l}</span>
+        <span class="bar-bg"><span class="bar" style="display:block;width:${(p*100).toFixed(1)}%"></span></span>
+        <span class="score">${p.toFixed(3)}</span>`;
+      results.appendChild(row);
+    }
+    document.getElementById("pred-id").textContent = "id: " + currentId;
+    // Pre-check the model's positive labels so the user only has to correct them.
+    for (const cb of boxes.querySelectorAll("input")) {
+      cb.checked = body.scores[cb.value] >= 0.5;
+    }
+    document.getElementById("fb-msg").textContent = "";
+    document.getElementById("feedback").style.display = "block";
+  } catch (e) {
+    msg.textContent = "Error: " + e.message;
+    msg.className = "err";
+  }
+};
+
+document.getElementById("submit-feedback").onclick = async () => {
+  const fbMsg = document.getElementById("fb-msg");
+  fbMsg.textContent = ""; fbMsg.className = "";
+  if (!currentId) return;
+  const labels = {};
+  for (const cb of boxes.querySelectorAll("input")) labels[cb.value] = cb.checked;
+  try {
+    const r = await fetch("/api/feedback", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({id: currentId, labels}),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || r.statusText);
+    fbMsg.textContent = "Feedback recorded. Thanks!";
+  } catch (e) {
+    fbMsg.textContent = "Error: " + e.message;
+    fbMsg.className = "err";
+  }
+};
+</script>
+</body>
+</html>

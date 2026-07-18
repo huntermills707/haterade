@@ -5,10 +5,27 @@ it in MLflow, deploy through KServe with progressive delivery (Argo Rollouts),
 and observe scale-to-zero and GPU-aware autoscaling — across two Kubernetes
 clusters running identical application manifests on very different hardware.
 
-The model is intentionally trivial (DistilBERT on Jigsaw). The interesting work
-is the **platform**: how a trained artifact moves from a notebook into a
-production-grade serving topology with progressive delivery, autoscaling on the
-right signals, and a CPU-vs-GPU performance comparison.
+## Motivation
+
+Most MLOps tutorials stop at "model in a notebook, Dockerfile around it". The
+hard part is everything after: how a trained artifact moves from a training
+run into a production-grade serving topology, how a new model version earns
+its way into production, and what it costs to serve.
+
+This project exists to make that path concrete and reproducible:
+
+- **The full loop, not a slice.** Train → register in MLflow → export
+  (ONNX / TensorRT) → serve behind an Istio gateway → canary the next version
+  with Prometheus analysis gates → promote or roll back. Plus a web UI whose
+  "disagree" labels feed back into training data.
+- **The model is intentionally trivial** (DistilBERT on Jigsaw). The
+  interesting work is the **platform** — the model can be swapped for anything
+  without changing the machinery around it.
+- **Same manifests, different hardware.** A laptop CPU cluster and a
+  bare-metal 2×GPU cluster run identical application manifests, so CPU-vs-GPU
+  serving cost and autoscaling behavior can be compared honestly.
+- **Everything is a script or a manifest.** No console click-ops: bootstrap,
+  deploy, query, canary, promote, and roll back are all runnable commands.
 
 ## Architecture
 
@@ -46,7 +63,7 @@ flowchart LR
 Both clusters run the same platform stack (Istio, KServe, KEDA, Argo Rollouts,
 Prometheus, MLflow) via a single shared install script. Only the Triton
 backend (ONNX on CPU vs TensorRT on GPU), the node selector, and the DCGM
-autoscaler trigger differ. See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md).
+autoscaler trigger differ.
 
 ## Two acts
 
@@ -58,9 +75,8 @@ autoscaler trigger differ. See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-a
 | Autoscaler signal | Triton queue depth | Triton queue depth + DCGM GPU util |
 | Headline demo | Autoscaling, Argo Rollouts canary | GPU cost optimization, autoscaling, canary |
 
-See [ADR 0002](docs/adr/0002-use-k3s-for-both-clusters.md) for the unified
-runtime rationale (supersedes [ADR 0001](docs/adr/0001-use-kind-for-cpu-and-k3s-for-gpu.md)
-after M0 verification surfaced kind-specific issues).
+Both clusters use k3s as the runtime — one install path, identical manifests,
+very different hardware.
 
 ## Tech stack
 
@@ -68,7 +84,7 @@ after M0 verification surfaced kind-specific issues).
 |---|---|---|
 | Orchestration | k3s (both clusters) | Same runtime in dev and prod-like envs |
 | Model serving | KServe (RawDeployment mode) | De-facto standard CRD; portable |
-| Inference runtime | NVIDIA Triton (both clusters) | One runtime, one config format; see ADR 0005 |
+| Inference runtime | NVIDIA Triton (both clusters) | One runtime, one config format |
 | CPU backend | ONNX Runtime (via Triton) | Runtime-agnostic; no version mismatch |
 | GPU backend | TensorRT (via Triton) | First-class TRT backend in KServe |
 | Experiment tracking | MLflow + MinIO | Artifact + param/metric registry |
@@ -83,9 +99,6 @@ after M0 verification surfaced kind-specific issues).
 ```
 .
 ├── README.md
-├── docs/adr/
-│   ├── 0001-use-kind-for-cpu-and-k3s-for-gpu.md   superseded by 0002
-│   └── 0002-use-k3s-for-both-clusters.md          current runtime decision
 ├── infra/
 │   ├── k3s-install.sh                              shared installer (WITH_GPU flag)
 │   ├── install-platform-stack.sh                   shared KServe/KEDA/Argo/Istio/Prometheus/MLflow
@@ -99,38 +112,20 @@ after M0 verification surfaced kind-specific issues).
 │       ├── bootstrap.sh                            sources shared k3s (GPU) + GPU Operator + platform stack
 │       └── gpu-operator-values.yaml                device plugin + DCGM, host driver
 ├── serving/
-│   ├── cpu/                                        Triton + ONNX predictor (Argo Rollout from M4)
-│   ├── cpu/canary/                                 M4 canary artifacts
-│   ├── gpu/                                        Triton + TensorRT predictor (Argo Rollout from M4)
-│   └── gpu/canary/                                 M4/M5 canary artifacts
-├── traffic/                                        Locust load tests (M3)
+│   ├── cpu/                                        Triton + ONNX predictor (Argo Rollout)
+│   ├── cpu/canary/                                 canary artifacts
+│   ├── gpu/                                        Triton + TensorRT predictor (Argo Rollout)
+│   └── gpu/canary/                                 canary artifacts
+├── traffic/                                        Locust load tests
+├── frontend/                                       toxicity-ui: raw-text web UI + feedback logging
 └── monitoring/                                     Grafana dashboards + Argo Rollouts metrics
 ```
 
-`traffic/` (Locust) is in place for M3, `monitoring/` has dashboards for M3
-and M4, and M4/M5 plumbing is in `serving/{cpu,gpu}/rollout.yaml`,
+`traffic/` holds the Locust load tests, `monitoring/` the Grafana dashboards,
+and the canary/autoscaling plumbing lives in `serving/{cpu,gpu}/rollout.yaml`,
 `serving/{cpu,gpu}/scaledobject.yaml`, and `serving/{cpu,gpu}/canary/`.
 
-## Milestones
-
-| ID | Milestone | Status |
-|---|---|---|
-| M0 | Cluster bootstrap + platform stack | **Verified on k3s** (both CPU and GPU clusters). *Caveat:* initial M0 verification covered pod readiness only — a latent MLflow artifact-upload bug (missing `boto3` in the upstream image) was caught and fixed during M1 (see [ADR 0006](docs/adr/0006-use-distilbert-over-bert.md) refs + `infra/manifests/mlflow.yaml` comment). |
-| M1 | Train DistilBERT on Jigsaw, log to MLflow | **Verified on CPU and GPU** (run `715720fe79cb44178dfa65ef32da50eb`, auroc_macro 0.9795). See [ADR 0006](docs/adr/0006-use-distilbert-over-bert.md). |
-| M2 | Serve v1 | **Verified on CPU** (Triton + ONNX backend; Argo Rollout `toxicity-cpu`, V2 inference through Istio Gateway works end-to-end). **Verified on GPU** (Triton + TensorRT backend; Argo Rollout `toxicity-gpu`). See [ADR 0005](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md). |
-| M3 | Traffic sim + observe autoscaling | **Verified on CPU** — KEDA scaled `toxicity-cpu` from 1 → 3 replicas on Triton queue-duration and scaled back to 1 after traffic stopped. **Verified on GPU** — KEDA scaled `toxicity-gpu` from 1 → 2 replicas on Triton queue-depth. True scale-to-zero intentionally dropped; see [ADR 0007](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md). Grafana M3 dashboard deployed. |
-| M4 | Argo Rollouts canary with Prometheus analysis | **Verified on CPU** — placeholder v2 canary ran end-to-end through 5% → 25% → 50% → 100% with `setCanaryScale: 3`, all Prometheus analysis gates passed. **Verified on GPU** — placeholder v2 canary ran end-to-end through 5% → 25% → 50% → 100% with `setCanaryScale: 1` (2-GPU node limit), all Prometheus analysis gates passed. Grafana M4 dashboard deployed. See [ADR 0008](docs/adr/0008-argo-rollouts-canary-with-kserve-rawdeployment.md) and [ADR 0009](docs/adr/0009-placeholder-v2-artifact-for-m4.md). |
-| M5 | v2 retrain + automated promotion | **Verified on CPU** — retrained model passed the AUROC gate, was staged in MLflow, built into a canary v2 repository, and promoted through the Argo Rollouts canary. **Verified on GPU** — same promotion pipeline builds a TensorRT plan in the canary PVC and promotes through the Argo Rollouts canary. See [ADR 0010](docs/adr/0010-automated-v2-retrain-and-promotion.md). |
-
-Stretch goals (one-line each, in `docs/adr/` as they become decisions):
-
-- KServe transformer container — raw text → tokens → predictor
-- GitHub Actions CI — retrain on PR, bake per-arch TRT engine matrix
-- Grafana dashboard comparing CPU vs GPU latency / throughput / cost-per-1M-reqs
-- Terraform overlay deploying the same manifests to a managed cloud cluster
-- Model drift detection via KServe + alibi-detect
-
-## Quickstart
+## Quick Start
 
 ### Prerequisites
 
@@ -191,7 +186,7 @@ test from a pod, then installs the same platform stack as the CPU cluster.
 
 ### Deploy the Triton toxicity model (GPU cluster)
 
-The GPU predictor is an Argo Rollout (not a KServe ISVC) so M4 canary traffic
+The GPU predictor is an Argo Rollout (not a KServe ISVC) so canary traffic
 splitting works. The TensorRT plan is built inside the same Triton 23.05
 container that serves it, avoiding host TensorRT version mismatches.
 
@@ -222,10 +217,60 @@ image to bake the `.plan` engine. If you prefer to bake on the host, see
 `serving/gpu/build-engine.sh`, but the host `trtexec` must match the TensorRT
 version inside Triton 23.05 (TensorRT 8.6).
 
-## M4 — Canary with Argo Rollouts
+## Usage
 
-Both CPU and GPU predictors are Argo Rollouts so M4 can run Istio traffic-split
-canaries with Prometheus analysis gates. Replace `cpu` with `gpu` below for the
+Once a cluster is up and the model is deployed, the day-to-day surfaces are:
+
+**Classify text.** Easiest is the web UI (see
+[Toxicity UI + feedback loop](#toxicity-ui--feedback-loop)); the API is plain
+JSON:
+
+```bash
+GATEWAY_IP=$(kubectl -n istio-ingress get svc istio-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -H "Host: toxicity-ui-default.example.com" -H "Content-Type: application/json" \
+  -d '{"text":"you are a wonderful person"}' "http://$GATEWAY_IP/api/predict"
+# → {"id": "…", "scores": {"toxic": 0.01, …}}
+```
+
+Or smoke-test Triton directly (pre-tokenized V2 protocol — see
+[Inference contract](#inference-contract)):
+
+```bash
+./serving/cpu/query.sh      # or serving/gpu/query.sh
+SAMPLE_TEXT="i hate this" ./serving/cpu/query.sh
+```
+
+**Track experiments.** MLflow UI:
+`kubectl -n mlflow port-forward svc/mlflow 5000` → http://localhost:5000.
+Training runs log params, metrics, the model artifact, and a `manifest.json`
+describing the label contract.
+
+**Watch it scale and roll.** Grafana:
+`kubectl -n observability port-forward svc/kube-prometheus-stack-grafana 3000:80`
+(admin/admin) — dashboards for autoscaling and canary analysis. Generate load
+with `traffic/run.sh` (Locust) and watch KEDA scale the rollout on Triton
+queue depth.
+
+**Ship a new model.** Retrain with the promotion gate, then run the canary —
+see [Canary with Argo Rollouts](#canary-with-argo-rollouts) and
+[Automated v2 retrain and promotion](#automated-v2-retrain-and-promotion).
+Roll back with `./serving/{cpu,gpu}/rollback.sh`.
+
+**Feed real corrections back in.** Predictions and user "disagree" labels are
+logged by the UI; export and retrain on them:
+
+```bash
+POD=$(kubectl get pod -l app=toxicity-ui -o jsonpath='{.items[0].metadata.name}')
+kubectl cp "default/$POD:/data" ./data
+python3 frontend/export_feedback.py --data-dir ./data
+cd training && FEEDBACK_CSV_DIR=$PWD/../data MLFLOW_REGISTER_MODEL=true \
+  MLFLOW_PROMOTE_MODEL=true .venv/bin/python -m training.train
+```
+
+## Canary with Argo Rollouts
+
+Both CPU and GPU predictors are Argo Rollouts so Istio traffic-split canaries
+can run with Prometheus analysis gates. Replace `cpu` with `gpu` below for the
 GPU cluster.
 
 ```bash
@@ -236,7 +281,7 @@ kubectl apply -f serving/cpu/scaledobject.yaml
 kubectl apply -f serving/cpu/triton-servicemonitor.yaml
 kubectl apply -f serving/cpu/analysis-template.yaml
 
-# 2. Enable Argo Rollouts controller metrics for the M4 dashboard.
+# 2. Enable Argo Rollouts controller metrics for the canary dashboard.
 kubectl apply -f monitoring/argo-rollouts-metrics.yaml
 kubectl apply -f monitoring/dashboards/k8s-configmap-m4.yaml
 
@@ -265,11 +310,11 @@ GPU-specific notes:
   version in `serving/gpu/canary/build-canary-placeholder.sh`.
 
 See `serving/cpu/canary/README.md` and `serving/gpu/canary/` for details and
-`monitoring/README.md` for the M4 dashboard.
+`monitoring/README.md` for the canary dashboard.
 
-## M5 — Automated v2 retrain and promotion
+## Automated v2 retrain and promotion
 
-The M5 flow closes the loop from a new training run to a promoted model.
+This flow closes the loop from a new training run to a promoted model.
 Replace `cpu` with `gpu` below for the GPU cluster.
 
 ```bash
@@ -298,8 +343,26 @@ GPU-specific notes:
 - After promotion the canary model repo is copied to the stable PVC and the
   Rollout is pointed back at the stable PVC.
 
-See [ADR 0010](docs/adr/0010-automated-v2-retrain-and-promotion.md) for the
-design and `serving/{cpu,gpu}/canary/README.md` for details on the canary step.
+See `serving/{cpu,gpu}/canary/README.md` for details on the canary step.
+
+## Toxicity UI + feedback loop
+
+`frontend/` is a small FastAPI service + web page that accepts raw text (it
+does the tokenization Triton doesn't), returns per-label toxicity scores, and
+logs every input with a UUID. Users who disagree can submit their own labels,
+which are logged too; `frontend/export_feedback.py` joins the two logs and
+splits them into Jigsaw-schema `feedback_train.csv` / `feedback_test.csv`,
+which training appends to the Jigsaw split when `FEEDBACK_CSV_DIR` is set —
+the promotion gate and canary pipeline are unchanged.
+
+```bash
+docker build -t toxicity-ui:latest frontend/
+docker save toxicity-ui:latest | sudo k3s ctr images import -
+kubectl apply -f frontend/k8s.yaml
+# UI + API at host toxicity-ui-default.example.com on the same Istio gateway
+```
+
+See `frontend/README.md` for the full build/deploy/feedback-loop walkthrough.
 
 ## Inference contract
 
@@ -326,26 +389,6 @@ Six logits correspond to the Jigsaw multi-label set: `toxic`,
 `severe_toxic`, `obscene`, `threat`, `insult`, `identity_hate` (sigmoid, not
 softmax — they are not mutually exclusive).
 
-## Decisions
-
-Architecture Decision Records live in [`docs/adr/`](docs/adr/). The point of
-keeping them is to document engineering tradeoffs, not to ratify outputs:
-
-- [0001 — kind for CPU, k3s for GPU](docs/adr/0001-use-kind-for-cpu-and-k3s-for-gpu.md) — **superseded**
-- [0002 — k3s for both clusters](docs/adr/0002-use-k3s-for-both-clusters.md) — current
-- [0003 — RawDeployment + KEDA over Serverless](docs/adr/0003-rawdeployment-and-keda-over-serverless.md) — filed (M3; amended for M4)
-- [0004 — MLServer for the MLflow handoff on CPU](docs/adr/0004-use-mlserver-for-mlflow-handoff-on-cpu.md) — **superseded by 0005**
-- [0005 — Triton on both CPU and GPU clusters](docs/adr/0005-use-triton-on-both-cpu-and-gpu.md) — filed (M2, supersedes 0004)
-- [0006 — DistilBERT over full BERT](docs/adr/0006-use-distilbert-over-bert.md) — filed (M1)
-- [0007 — Drop true scale-to-zero; keep min one replica](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md) — filed (M3)
-- [0008 — Argo Rollouts owns the CPU and GPU predictors](docs/adr/0008-argo-rollouts-canary-with-kserve-rawdeployment.md) — filed (M4)
-- [0009 — Placeholder v2 artifact for M4](docs/adr/0009-placeholder-v2-artifact-for-m4.md) — filed (M4; amended for M5)
-- [0010 — Automated v2 retrain and promotion](docs/adr/0010-automated-v2-retrain-and-promotion.md) — filed (M5)
-
-Planned ADRs (filed when the corresponding code lands):
-
-- 0011 — Per-architecture TRT engine matrix in CI
-
 ## Known limitations
 
 - **Engine plans are GPU-architecture-bound.** A plan baked on sm_75 (Turing)
@@ -370,12 +413,10 @@ Planned ADRs (filed when the corresponding code lands):
   `ghcr.io/mlflow/mlflow:v2.20.3` image does not include `boto3`, so the
   in-server artifact proxy (enabled by `--serve-artifacts`) 500s on every
   artifact PUT — `ModuleNotFoundError: No module named 'boto3'` in the pod
-  logs. This was a latent bug from M0: the original "Verified on k3s" claim
-  only checked pod readiness, not artifact uploads. Surfaced and fixed during
-  M1 (2026-07-13) by wrapping the container command in
+  logs. Fixed by wrapping the container command in
   `pip install --quiet boto3 && exec mlflow …`
   in `infra/manifests/mlflow.yaml`. Long-term fix: bake a custom image once a
-  private registry is in place (ADR candidate).
+  private registry is in place.
 - **KServe RawDeployment creates Ingress, not VirtualService.** In the
   current install (KServe v0.19 + Istio 1.30 via `helm install
   istio-ingress istio/gateway`), the auto-generated `networking.k8s.io/
@@ -387,8 +428,39 @@ Planned ADRs (filed when the corresponding code lands):
   `serving/gpu/rollout.yaml`).
 - **PromQL labels need verification** against the actual DCGM exporter version.
   See `serving/gpu/scaledobject.yaml`.
-- **CPU predictor keeps one replica at idle.** Per [ADR 0007](docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md),
-  true scale-to-zero is out of scope for RawDeployment M3. `minReplicas: 1`
-  ensures the pod-level Triton metric used by KEDA is always available. If
-  scale-to-zero becomes a hard requirement, the right path is Serverless
-  (Knative) mode, not a RawDeployment workaround.
+- **CPU predictor keeps one replica at idle.** True scale-to-zero is out of
+  scope for RawDeployment. `minReplicas: 1` ensures the pod-level Triton
+  metric used by KEDA is always available. If scale-to-zero becomes a hard
+  requirement, the right path is Serverless (Knative) mode, not a
+  RawDeployment workaround.
+
+## Contributing
+
+Contributions are welcome. The project is small enough that a few conventions
+keep it coherent:
+
+- **Everything runnable, nothing click-ops.** New functionality should land as
+  a script or a manifest that can be applied with `kubectl apply` / executed
+  directly — not as console instructions. Keep scripts idempotent and
+  `set -euo pipefail`-clean, matching the existing `infra/` and `serving/`
+  scripts.
+- **Config via env vars.** Training (`training/src/env.py`) and the frontend
+  (`frontend/app.py`) read all knobs from the environment, with
+  `training/.env.example` documenting them. Add new knobs there, not as new
+  CLI flags or hardcoded values.
+- **Python code lives in per-area venvs.** Each area has its own
+  `requirements.txt` and `.venv` (`training/`, `traffic/`, `frontend/`).
+  Don't add a dependency without adding it to the relevant
+  `requirements.txt`, and match the versions/idioms already in use.
+- **Keep the label contract stable.** The six Jigsaw labels and their order
+  (`toxic, severe_toxic, obscene, threat, insult, identity_hate`) are a
+  cross-component contract — training, the Triton configs, the frontend, and
+  the feedback exporter all depend on it. Changing it means changing all of
+  them together.
+- **Verify before claiming.** Run the thing you're changing end-to-end
+  (train a short run, query the predictor, exercise the UI) and update the
+  relevant README when behavior or commands change.
+
+Suggested flow: open an issue describing the change before large work
+(new platform components, changes to the promotion/canary flow), keep PRs
+scoped to one concern, and include the commands you used to verify.

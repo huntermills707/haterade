@@ -51,6 +51,7 @@ class Config:
     # Training
     train_sample_limit: int
     eval_sample_limit: int
+    feedback_csv_dir: str
     max_length: int
     train_batch_size: int
     eval_batch_size: int
@@ -137,6 +138,10 @@ def from_env() -> Config:
         production_stage=os.environ.get("MLFLOW_PRODUCTION_STAGE", "Production"),
         train_sample_limit=_int(os.environ.get("TRAIN_SAMPLE_LIMIT"), 2000),
         eval_sample_limit=_int(os.environ.get("EVAL_SAMPLE_LIMIT"), 200),
+        # Dir with feedback_train.csv / feedback_test.csv exported from the
+        # UI's user-disagreement log (frontend/export_feedback.py). Empty
+        # disables; feedback rows are appended to the Jigsaw train/eval split.
+        feedback_csv_dir=os.environ.get("FEEDBACK_CSV_DIR", ""),
         max_length=_int(os.environ.get("MAX_LENGTH"), 128),
         train_batch_size=_int(os.environ.get("TRAIN_BATCH_SIZE"), 16),
         eval_batch_size=_int(os.environ.get("EVAL_BATCH_SIZE"), 32),

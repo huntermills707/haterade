@@ -1,0 +1,80 @@
+# Toxicity UI: raw-text frontend for the Triton toxicity model.
+#
+# Serves a small web page + JSON API that tokenizes user text, calls the
+# Triton V2 /infer endpoint, and logs every input (with a UUID) plus any
+# user-supplied "disagree" labels as JSONL on the toxicity-ui-data PVC.
+# See frontend/README.md for build/deploy and the feedback -> training loop.
+#
+# The image is built locally and imported into k3s containerd (no registry
+# in this stack): see frontend/README.md.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: toxicity-ui-data, namespace: default}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxicity-ui
+  namespace: default
+  labels: {app: toxicity-ui}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: toxicity-ui}}
+  template:
+    metadata: {labels: {app: toxicity-ui}}
+    spec:
+      containers:
+        - name: toxicity-ui
+          image: toxicity-ui:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # CPU cluster default. For the GPU cluster set:
+            #   TRITON_INFER_URL=http://toxicity-gpu-stable.default.svc.cluster.local/v2/models/distilbert-toxicity/infer
+            #   TRITON_DATATYPE=INT32
+            - name: TRITON_INFER_URL
+              value: "http://toxicity-cpu-stable.default.svc.cluster.local/v2/models/distilbert-toxicity/infer"
+            - name: TRITON_DATATYPE
+              value: "INT64"
+            - name: DATA_DIR
+              value: "/data"
+          ports: [{containerPort: 8000}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: toxicity-ui-data}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: toxicity-ui, namespace: default}
+spec:
+  selector: {app: toxicity-ui}
+  ports: [{port: 80, targetPort: 8000}]
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: toxicity-ui
+  namespace: default
+spec:
+  gateways:
+    - kserve/kserve-ingress-gateway
+  hosts:
+    - toxicity-ui-default.example.com
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: toxicity-ui.default.svc.cluster.local
+            port:
+              number: 80
+          weight: 100

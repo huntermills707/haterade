@@ -1,0 +1,2 @@
+{"id": "acf34b7dc2734c269810740799c7a9ca", "ts": "2026-07-18T05:08:53.172309+00:00", "labels": {"toxic": false, "severe_toxic": false, "obscene": false, "threat": true, "insult": true, "identity_hate": false}}
+{"id": "fcbe9c25a445448ba0eb96c2a41bcdc2", "ts": "2026-07-18T05:09:12.296422+00:00", "labels": {"toxic": true, "severe_toxic": false, "obscene": true, "threat": true, "insult": true, "identity_hate": false}}
