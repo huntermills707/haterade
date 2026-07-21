@@ -118,4 +118,4 @@ first real run).
 - GPU training (M0 GPU cluster pending hardware).
 - KServe serving (M2 — consumes this run's `runs:/<id>/model` URI).
 - Transformer container for raw-text input (stretch).
-- Bigger backbone (ADR 0006 once filed).
+- Bigger backbone.

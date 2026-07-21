@@ -194,5 +194,6 @@ CPU predictor is now managed by Argo Rollouts for canary delivery.
   the CUDA runtime, which is unused on CPU. A CPU-only Triton build
   exists upstream but is not published as an official image.
 - **Argo Rollouts owns the predictor.** KServe's ISVC abstraction is no
-  longer used for the CPU predictor. This was a deliberate M4 trade-off;
-  see `docs/adr/0008-argo-rollouts-canary-with-kserve-rawdeployment.md`.
+  longer used for the CPU predictor. This was a deliberate M4 trade-off:
+  Argo Rollouts' Istio integration requires owning both the stable and
+  canary Service selectors, which an ISVC will not cede.

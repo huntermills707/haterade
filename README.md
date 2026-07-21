@@ -1,16 +1,39 @@
 # basic_mlops_pipeline
 
-A reproducible MLOps platform demo: train a text-toxicity classifier, register
-it in MLflow, deploy through KServe with progressive delivery (Argo Rollouts),
-and observe scale-to-zero and GPU-aware autoscaling — across two Kubernetes
-clusters running identical application manifests on very different hardware.
+A **reference implementation** of a production serving topology for ML: train a
+text-toxicity classifier, register it in MLflow, deploy through KServe with
+progressive delivery (Argo Rollouts), and observe scale-to-zero and GPU-aware
+autoscaling — across two Kubernetes clusters running identical application
+manifests on very different hardware.
+
+## What this is
+
+**Production topology, not production operations.**
+
+The architecture is the one you would actually run: Istio ingress, canary
+weights gated on live PromQL analysis rather than a timer, autoscaling driven by
+Triton queue depth and DCGM GPU utilization, artifacts moving through a registry
+instead of a `scp`. Every step is a script or a manifest — bootstrap, deploy,
+query, canary, promote, and roll back are all runnable commands, and none of it
+is click-ops.
+
+The operational envelope around that topology is deliberately out of scope:
+single-node clusters, no HA, no SLOs, no on-call, no CI, no multi-tenancy, and
+no real users. Those are not oversights to be discovered — they are the scope
+line, and where it bites is written down in
+[Known limitations](#known-limitations).
+
+The distinction that matters for a reader: everything here has been *run*, on
+two very different machines, and the failures that took real debugging (silent
+DNS hijacking, a serving image missing `boto3`, KServe's Ingress never reaching
+the Istio proxy) are documented as findings rather than smoothed over.
 
 ## Motivation
 
 Most MLOps tutorials stop at "model in a notebook, Dockerfile around it". The
 hard part is everything after: how a trained artifact moves from a training
-run into a production-grade serving topology, how a new model version earns
-its way into production, and what it costs to serve.
+run into a real serving topology, how a new model version earns its way into
+production, and what it costs to serve.
 
 This project exists to make that path concrete and reproducible:
 
@@ -105,7 +128,7 @@ autoscaler trigger differ.
 | Runtime | Triton + ONNX backend (`model.onnx`) | Triton + TensorRT backend (`model.plan`) |
 | Handoff story | MLflow → ONNX export → PVC → Triton | MLflow → ONNX → TensorRT plan → Triton |
 | Autoscaler signal | Triton queue depth | Triton queue depth + DCGM GPU util |
-| Headline demo | Autoscaling, Argo Rollouts canary | GPU cost optimization, autoscaling, canary |
+| Headline result | Autoscaling, Argo Rollouts canary | GPU cost optimization, autoscaling, canary |
 
 Both clusters use k3s as the runtime — one install path, identical manifests,
 very different hardware.

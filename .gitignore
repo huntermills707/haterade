@@ -11,6 +11,14 @@ access_token
 *.pem
 *.key
 
+# Dev notes — ADRs are kept local, not published with the repo
+docs/
+
+# IDE / editor state
+.idea/
+.vscode/
+*.swp
+
 # Python
 __pycache__/
 *.pyc

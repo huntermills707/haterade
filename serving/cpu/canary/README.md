@@ -166,5 +166,4 @@ longer the path to v2.
 M4 originally considered keeping the KServe InferenceService as the stable
 predictor and adding a separate Rollout for canary. Argo Rollouts' Istio
 integration requires owning both stable and canary Service selectors, so the
-predictor was converted to an Argo Rollout. See
-`docs/adr/0008-argo-rollouts-canary-with-kserve-rawdeployment.md`.
+predictor was converted to an Argo Rollout.

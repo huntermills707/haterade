@@ -56,8 +56,9 @@ wave loops forever.
 ## Autoscaling scope
 
 The CPU ISVC uses a Triton pod-level metric (`nv_inference_queue_duration_us`)
-as its KEDA trigger. Per [ADR 0007](../docs/adr/0007-drop-scale-to-zero-keep-min-one-replica.md),
-true scale-to-zero is intentionally out of scope for RawDeployment M3. The
+as its KEDA trigger. True scale-to-zero is intentionally out of scope for
+RawDeployment M3 — it is not supported without Knative, and the workarounds
+cost more than they return here. The
 deployment keeps `minReplicas: 1` so the metric is always available, and KEDA
 scales it 1 → N → 1 under load.
 
