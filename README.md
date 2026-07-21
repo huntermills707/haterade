@@ -1,4 +1,4 @@
-# basic_mlops_pipeline
+# progressive_model_delivery
 
 A **reference implementation** of a production serving topology for ML: train a
 text-toxicity classifier, register it in MLflow, deploy through KServe with
@@ -187,6 +187,18 @@ and the canary/autoscaling plumbing lives in `serving/{cpu,gpu}/rollout.yaml`,
 On both machines: `kubectl`, `helm`, `jq`, `curl`, and sudo.
 On the GPU workstation additionally: NVIDIA driver installed (`nvidia-smi`
 works), Ubuntu/Debian for the nvidia-container-toolkit apt stanza.
+
+**`training/` requires Python 3.12.** It pins `torch==2.5.1`, which publishes no
+wheels above cp312, and `download.pytorch.org` prunes old releases from its
+index — so a 3.13+ venv fails with "no matching distribution found for torch",
+an error that names torch and never mentions the interpreter. `numpy==1.26.4`
+and `pandas==2.1.4` share the ceiling. The version is pinned in
+`training/.python-version`; create the venv explicitly:
+
+```bash
+cd training && ~/.pyenv/versions/3.12.13/bin/python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
 
 **Host DNS caveat (k3s + NordVPN):** NordVPN's client overwrites
 `/run/systemd/resolve/resolv.conf` when connected, pushing Nord's DNS servers

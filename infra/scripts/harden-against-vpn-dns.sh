@@ -41,7 +41,7 @@ K3S_CONFIG="/etc/rancher/k3s/config.yaml"
 echo "==> Writing stable upstream resolvers to $RESOLV_CONF"
 mkdir -p "$(dirname "$RESOLV_CONF")"
 cat >"$RESOLV_CONF" <<'EOF'
-# Managed by basic_mlops_pipeline/infra/scripts/harden-against-vpn-dns.sh
+# Managed by infra/scripts/harden-against-vpn-dns.sh
 # Stable public resolvers so VPN DNS takeover can't break k3s upstream lookup.
 nameserver 1.1.1.1
 nameserver 9.9.9.9
@@ -59,7 +59,7 @@ if [ -f "$K3S_CONFIG" ]; then
   fi
 else
   cat >"$K3S_CONFIG" <<EOF
-# Managed by basic_mlops_pipeline/infra/scripts/harden-against-vpn-dns.sh
+# Managed by infra/scripts/harden-against-vpn-dns.sh
 kubelet-arg:
   - "resolv-conf=$RESOLV_CONF"
 EOF

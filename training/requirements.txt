@@ -1,5 +1,12 @@
 # M1 — Jigsaw DistilBERT training.
 #
+# REQUIRES PYTHON 3.12 (see .python-version). torch 2.5.1 ships no wheels
+# above cp312, and download.pytorch.org prunes old releases from its index,
+# so a 3.13+ venv fails to resolve with a misleading "no matching
+# distribution" naming only torch. numpy 1.26.4 and pandas 2.1.4 have the
+# same ceiling. Create the venv explicitly:
+#     ~/.pyenv/versions/3.12.13/bin/python -m venv .venv
+#
 # CPU-only build of PyTorch. Smaller install than the CUDA wheel and
 # plenty for short DistilBERT runs on the laptop.
 --extra-index-url https://download.pytorch.org/whl/cpu

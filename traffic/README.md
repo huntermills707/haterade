@@ -85,3 +85,20 @@ avg(rate(nv_inference_queue_duration_us{model="distilbert-toxicity"}[30s]))
 
 KEDA scales up when the average queue pressure per pod exceeds `50000` µs/s
 (≈ 50 ms/s) and scales back down to `minReplicas` after the cooldown.
+
+## Known noise: gevent shutdown traceback
+
+Every `locust` invocation — including `locust --version` — ends with an
+`Exception ignored ... RuntimeError: greenlet is being finalized` traceback on
+stderr, raised from `gevent/thread.py` while the logging module tears down its
+weakref handlers.
+
+It is cosmetic. The exception is raised during interpreter finalization, after
+the run has completed; Python swallows it and the process still exits 0. Load
+test results are unaffected.
+
+Reproduced identically on Python 3.12.13 and 3.14.6 with gevent 25.9.1, so it
+is a gevent/greenlet interaction, not a Python version problem — pinning the
+interpreter does not help. `requirements.txt` floats gevent transitively via
+`locust>=2.32,<3.0`; pinning gevent below 25.9 would be the lever if the noise
+ever needs to go away.

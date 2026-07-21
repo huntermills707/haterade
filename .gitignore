@@ -29,6 +29,7 @@ __pycache__/
 # Training artifacts
 training/runs/
 training/data/
+mlruns/
 *.ckpt
 *.pt
 *.bin
