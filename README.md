@@ -31,33 +31,65 @@ This project exists to make that path concrete and reproducible:
 
 ```mermaid
 flowchart LR
-    Notebook["Notebook<br/>Jigsaw DistilBERT"] --> Registry[("MLflow Registry<br/>+ MinIO artifacts")]
-    Registry -. ONNX export .-> CPU
-    Registry -. ONNX → TRT .-> GPU
+    Train["train.py (host)<br/>Jigsaw DistilBERT"]
+    Locust["Locust<br/>spiky pre-tokenized V2 traffic"]
+    Browser["Browser<br/>raw text"]
+    Feedback["feedback_train/test.csv<br/>(export_feedback.py)"]
 
-    Client["Locust<br/>spiky traffic"] --> Mesh["Istio ingress<br/>+ traffic split"]
+    Train -->|"log + register model<br/>via port-forward"| MLflow[("MLflow Registry<br/>+ MinIO artifacts<br/>(runs in each cluster)")]
+    Feedback -. "FEEDBACK_CSV_DIR" .-> Train
+
+    MLflow -. "build-model-repo.sh<br/>ONNX export (INT64)" .-> PVCcpu
+    MLflow -. "build-model-repo.sh<br/>ONNX (INT32) → TensorRT plan<br/>baked in Triton 23.05 Job" .-> PVCgpu
+
+    Locust -->|"one cluster at a time:<br/>GATEWAY_IP + Host header"| GWcpu & GWgpu
+    Browser --> GWcpu & GWgpu
 
     subgraph CPU["CPU cluster — k3s (laptop)"]
         direction TB
-        TritonCPU["Argo Rollout<br/>Triton + ONNX<br/>V2 protocol"]
+        GWcpu["Istio ingress gateway<br/>(kserve-ingress-gateway)<br/>+ VirtualService split"]
+        UIcpu["toxicity-ui<br/>tokenize + log predictions/feedback"]
+        RollCpu["Argo Rollout toxicity-cpu<br/>Triton + ONNX (INT64)<br/>stable v1 / canary v2"]
+        PVCcpu[("model-repo PVC<br/>model.onnx")]
+        PromCpu[("Prometheus + Grafana")]
+        KedaCpu["KEDA ScaledObject<br/>queue depth → 1–3 replicas"]
+        ArgoCpu["Argo Rollouts<br/>AnalysisTemplate gates"]
+
+        GWcpu -->|"host: toxicity-ui-…"| UIcpu
+        GWcpu -->|"host: toxicity-cpu-…"| RollCpu
+        UIcpu -->|"stable svc V2 /infer"| RollCpu
+        PVCcpu --> RollCpu
+        RollCpu -. Triton metrics .-> PromCpu
+        KedaCpu -. PromQL trigger .-> PromCpu
+        KedaCpu -. scale .-> RollCpu
+        ArgoCpu -. PromQL via AnalysisRun .-> PromCpu
+        ArgoCpu -. "weights 5→25→50→100<br/>or abort" .-> GWcpu
     end
 
     subgraph GPU["GPU cluster — k3s (2× RTX 2060 Super)"]
         direction TB
-        Triton["Argo Rollout<br/>Triton + TensorRT<br/>fp16 plan, sm_75"]
+        GWgpu["Istio ingress gateway<br/>(kserve-ingress-gateway)<br/>+ VirtualService split"]
+        UIgpu["toxicity-ui<br/>tokenize + log predictions/feedback"]
+        RollGpu["Argo Rollout toxicity-gpu<br/>Triton + TensorRT (INT32)<br/>fp16 plan, sm_75 — stable v1 / canary v2"]
+        PVCgpu[("model-repo PVC<br/>model.plan")]
         DCGM["DCGM exporter"]
+        PromGpu[("Prometheus + Grafana")]
+        KedaGpu["KEDA ScaledObject<br/>queue depth + GPU util → 1–2 replicas"]
+        ArgoGpu["Argo Rollouts<br/>AnalysisTemplate gates"]
+
+        GWgpu -->|"host: toxicity-ui-…"| UIgpu
+        GWgpu -->|"host: toxicity-gpu-…"| RollGpu
+        UIgpu -->|"stable svc V2 /infer"| RollGpu
+        PVCgpu --> RollGpu
+        DCGM -. GPU metrics .-> PromGpu
+        RollGpu -. Triton metrics .-> PromGpu
+        KedaGpu -. PromQL trigger .-> PromGpu
+        KedaGpu -. scale .-> RollGpu
+        ArgoGpu -. PromQL via AnalysisRun .-> PromGpu
+        ArgoGpu -. "weights 5→25→50→100<br/>or abort" .-> GWgpu
     end
 
-    Mesh --> CPU
-    Mesh --> GPU
-
-    TritonCPU -. metrics .-> Prom[("Prometheus<br/>+ Grafana")]
-    Triton -. metrics .-> Prom
-    DCGM  -. GPU metrics .-> Prom
-
-    Prom -. scale .-> KEDA["KEDA<br/>(queue depth + GPU util)"]
-    Prom -. analysis .-> Argo["Argo Rollouts<br/>canary v1 / v2"]
-    Argo -. route 10/90 .-> Mesh
+    UIcpu & UIgpu -. "kubectl cp /data" .-> Feedback
 ```
 
 Both clusters run the same platform stack (Istio, KServe, KEDA, Argo Rollouts,
