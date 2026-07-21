@@ -1,26 +1,36 @@
 #!/usr/bin/env bash
-# Tear down the deployed toxicity app so its compute (pods, GPU, RAM) is freed
-# for another deployment. Leaves the platform stack (Istio, KServe, KEDA, Argo
-# Rollouts, MLflow, Prometheus) and the model PVCs intact, so redeploying is
-# just `kubectl apply -f serving/{cpu,gpu}/rollout.yaml` again.
+# Tear down EVERYTHING this project installed on the cluster: the toxicity app
+# (pods, GPU, RAM) AND the platform stack (Istio, KServe, KEDA, Argo Rollouts,
+# cert-manager, Prometheus/Grafana, MLflow, MinIO). The k3s cluster itself is
+# left running, so you can deploy something else right away.
 #
-# Safe to run on either cluster and when nothing is deployed: every delete uses
-# --ignore-not-found. CPU and GPU resources are listed together; whichever
-# cluster you're on, only the matching ones exist and get removed.
+# Not touched: namespaces that don't belong to this project (mlops,
+# kuberay-system, kube-system, ...). Model PVCs in $NAMESPACE are kept unless
+# --purge-pvcs is given.
 #
 # Usage:
-#   ./kill-app.sh
+#   ./kill-app.sh                  # app + platform teardown (k3s stays up)
+#   ./kill-app.sh --purge-pvcs     # also drop the model PVCs
+#   ./kill-app.sh --app-only       # only the app; keep the platform stack for
+#                                  # a fast redeploy (old default behavior)
 #
-# To also drop the model PVCs (forces a model-repo rebuild on redeploy):
-#   ./kill-app.sh --purge-pvcs
+# Safe to re-run: every delete uses --ignore-not-found / || true.
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-default}"
 PURGE_PVCS=0
-if [ "${1:-}" = "--purge-pvcs" ]; then
-  PURGE_PVCS=1
-fi
+APP_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --purge-pvcs) PURGE_PVCS=1 ;;
+    --app-only)   APP_ONLY=1 ;;
+    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+  esac
+done
 
+# ----------------------------------------------------------------------------
+# App teardown (namespace $NAMESPACE)
+# ----------------------------------------------------------------------------
 echo "==> Aborting any in-progress Argo Rollouts canaries"
 for r in toxicity-cpu toxicity-gpu; do
   if kubectl get rollout "$r" -n "$NAMESPACE" >/dev/null 2>&1; then
@@ -71,6 +81,52 @@ else
   echo "==> Keeping model PVCs (pass --purge-pvcs to drop them)"
 fi
 
+if [ "$APP_ONLY" -eq 1 ]; then
+  echo ""
+  echo "Done (app only). Remaining app resources in $NAMESPACE:"
+  kubectl get rollout,deploy,svc,vs,scaledobject,analysistemplate,servicemonitor,pvc -n "$NAMESPACE" 2>&1 || true
+  exit 0
+fi
+
+# ----------------------------------------------------------------------------
+# Platform teardown (everything infra/install-platform-stack.sh installed)
+# ----------------------------------------------------------------------------
+# Helm releases. NOTE: minio is only uninstalled from the mlflow namespace —
+# the minio release in mlops belongs to another deployment.
+echo "==> Uninstalling platform Helm releases"
+helm uninstall argo-rollouts         -n argo-rollouts  2>/dev/null || true
+helm uninstall keda                  -n keda           2>/dev/null || true
+helm uninstall kube-prometheus-stack -n observability  2>/dev/null || true
+helm uninstall minio                 -n mlflow         2>/dev/null || true
+helm uninstall istio-ingress         -n istio-ingress  2>/dev/null || true
+helm uninstall istiod                -n istio-system   2>/dev/null || true
+helm uninstall istio-base            -n istio-system   2>/dev/null || true
+helm uninstall cert-manager          -n cert-manager   2>/dev/null || true
+
+echo "==> Removing KServe storage Secret and Istio injection label from $NAMESPACE"
+kubectl delete secret storage-config -n "$NAMESPACE" --ignore-not-found=true
+kubectl label ns "$NAMESPACE" istio-injection- 2>/dev/null || true
+
+echo "==> Deleting platform namespaces (KServe, MLflow, MinIO, Grafana, ...)"
+# Namespace deletion also sweeps up the operator-created StatefulSets
+# (Prometheus, Alertmanager) and the manifest-installed MLflow deployment.
+kubectl delete ns \
+  argo-rollouts keda observability mlflow kserve cert-manager \
+  istio-ingress istio-system \
+  --ignore-not-found=true --timeout=180s || true
+
+echo "==> Deleting leftover cluster-scoped resources (CRDs, webhooks)"
+# Helm uninstall leaves CRDs behind (charts ship them from crds/). Deleting
+# the CRDs cascades to any remaining custom resources. --timeout + || true so
+# a stuck finalizer can't wedge the script.
+kubectl get crd -o name 2>/dev/null \
+  | grep -E 'serving\.kserve\.io|keda\.sh|istio\.io|cert-manager\.io|argoproj\.io|monitoring\.coreos\.com' \
+  | xargs -r kubectl delete --ignore-not-found=true --timeout=120s || true
+kubectl get mutatingwebhookconfiguration,validatingwebhookconfiguration -o name 2>/dev/null \
+  | grep -Ei 'istio|kserve|cert-manager|keda|kube-prometheus' \
+  | xargs -r kubectl delete --ignore-not-found=true || true
+
 echo ""
-echo "Done. Remaining app resources in $NAMESPACE:"
-kubectl get rollout,deploy,svc,vs,scaledobject,analysistemplate,servicemonitor,pvc -n "$NAMESPACE" 2>&1 || true
+echo "Done. k3s is still running; platform namespaces are gone."
+echo "Remaining namespaces:"
+kubectl get ns
